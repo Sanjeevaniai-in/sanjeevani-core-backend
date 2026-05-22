@@ -1,0 +1,77 @@
+# Upgrading Sanjeevani AI Agents
+
+Upgrade the 4 key agents of the Sanjeevani system with enhanced intelligence, predictive capabilities, and a unified architecture.
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Architecture Change**: We are merging `patient_context.py` and `refill_prediction.py` into a unified `context_intelligence.py` to create a single "Context + Refill Intelligence Agent" as requested.
+> **Prescription ML**: Since real ML model integration (like a proprietary OCR/Classifier) requires external infrastructure, we will implement a robust LLM-based classifier and a simulation layer for Prescription OCR.
+
+## Proposed Changes
+
+### 1. Communication Agent (Input Brain)
+**Goal**: Handle unstructured input like "bhai fever ki tablet bhej do" and resolve fuzzy medicine names using the 2 Lakh dataset.
+
+#### [MODIFY] [chat.py](file:///d:/My%20Project/Sanjeevani/Sanjeevani%20Backend/Sanjeevani%20System/app/api/chat.py)
+- Upgrade system prompt to better handle "human-like" unstructured requests.
+- **NEW**: Integrate a fuzzy matching step using the newly ingested 2 Lakh medicine dataset to resolve typos.
+- **NEW**: Add a "Suggestion" step targeting the `Therapeutic Class` for better medical context (e.g., if user asks for "fever medicine", look up the database for matching categories).
+
+---
+
+### 2. Inventory Intelligence Agent
+**Goal**: Predictive inventory ("this will run out in 3 days").
+
+#### [MODIFY] [inventory_intelligence.py](file:///d:/My%20Project/Sanjeevani/Sanjeevani%20Backend/Sanjeevani%20System/app/modules/inventory_intelligence.py)
+- Add `calculate_days_until_out_of_stock(product_id)` method using current sales velocity.
+- Update `generate_inventory_alerts` to include a `predicted_out_of_stock` alert type.
+- Innovation: "Predictive inventory" labels in responses.
+
+---
+
+### 3. Safety & Prescription Agent
+**Goal**: AI-based compliance (OTC vs Prescription classification) with rich medical data.
+
+#### [MODIFY] [safety_validation.py](file:///d:/My%20Project/Sanjeevani/Sanjeevani%20Backend/Sanjeevani%20System/app/modules/safety_validation.py)
+- **NEW**: Use the `Habit Forming` and `Therapeutic Class` fields from the 2 Lakh dataset for automated safety flags.
+- **NEW**: Implement `verify_prescription(file_path)` using Groq/Vision or a robust OCR library (like `easyocr` or `pytesseract`).
+- **NEW**: Extract medicine names, dosage, and doctor details from OCR and match against the master dataset.
+
+---
+
+### 5. Data Ingestion & Enrichment (The Dataset) [NEW]
+**Goal**: Power the agents with the 2 Lakh Indian Pharmaceutical dataset.
+
+#### [NEW] [ingest_medicine_data.py](file:///d:/My%20Project/Sanjeevani/Sanjeevani%20Backend/Sanjeevani%20System/scripts/ingest_medicine_data.py)
+- A fast indexing script to load `indian_pharmaceutical_products_clean.csv` and `all_medicine databased.csv` into MongoDB.
+- Ensure efficient searching using text indexes in MongoDB.
+
+### 4. Context + Refill Intelligence Agent
+**Goal**: Unified behavior intelligence and refill cycle detection.
+
+#### [NEW] [context_intelligence.py](file:///d:/My%20Project/Sanjeevani/Sanjeevani%20Backend/Sanjeevani%20System/app/modules/context_intelligence.py)
+- Merge logic from `patient_context.py` and `refill_prediction.py`.
+- Add "Cycle Detection": Identify if a user repeats a 30-day or 15-day pattern.
+- Add `get_auto_reminders()`: Generate proactive refill alerts based on the detected cycle.
+
+#### [DELETE] [patient_context.py](file:///d:/My%20Project/Sanjeevani/Sanjeevani%20Backend/Sanjeevani%20System/app/modules/patient_context.py)
+#### [DELETE] [refill_prediction.py](file:///d:/My%20Project/Sanjeevani/Sanjeevani%20Backend/Sanjeevani%20System/app/modules/refill_prediction.py)
+
+---
+
+## Open Questions
+
+1. **Dataset**: Do you want me to seed a larger sample dataset (mock 2 lakh records) or should I stick to the current MongoDB data for testing?
+2. **Vision**: Does your Groq API key have access to Vision models (like LLaVA or GPT-4o)? If yes, I can implement real prescription OCR.
+
+## Verification Plan
+
+### Automated Tests
+- Chat bot test cases: "fever tablet bhej do" -> check if paracetamol is suggested.
+- Inventory test: Mock low stock and check "Days remaining" calculation.
+- Safety test: Ensure Prescription meds are flagged even without "Requires Prescription" flag in DB (AI classification).
+
+### Manual Verification
+- Trigger a refill reminder for a mock patient with history.
+- Upload a dummy prescription and check if it's "verified".

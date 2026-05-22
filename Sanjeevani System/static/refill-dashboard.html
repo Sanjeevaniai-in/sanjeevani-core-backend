@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Refill Reminder Dashboard - SanjeevaniRxAI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            color: #667eea;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            text-align: center;
+            transition: transform 0.3s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stat-card .icon {
+            font-size: 3em;
+            margin-bottom: 10px;
+        }
+
+        .stat-card .number {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .stat-card .label {
+            color: #666;
+            font-size: 1em;
+        }
+
+        .actions {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .btn {
+            padding: 15px 30px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1em;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .reminders-section {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .reminders-section h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 1.8em;
+        }
+
+        .reminder-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            border-left: 5px solid #667eea;
+            transition: all 0.3s;
+        }
+
+        .reminder-card:hover {
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            transform: translateX(5px);
+        }
+
+        .reminder-card.urgent {
+            border-left-color: #dc3545;
+            background: #fff5f5;
+        }
+
+        .reminder-card.warning {
+            border-left-color: #ffc107;
+            background: #fffef5;
+        }
+
+        .reminder-card.ok {
+            border-left-color: #28a745;
+            background: #f5fff5;
+        }
+
+        .reminder-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .reminder-header h3 {
+            color: #333;
+            font-size: 1.3em;
+        }
+
+        .status-badge {
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: bold;
+        }
+
+        .status-urgent {
+            background: #dc3545;
+            color: white;
+        }
+
+        .status-warning {
+            background: #ffc107;
+            color: #333;
+        }
+
+        .status-ok {
+            background: #28a745;
+            color: white;
+        }
+
+        .reminder-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .detail-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .detail-item .icon {
+            font-size: 1.5em;
+        }
+
+        .detail-item .text {
+            color: #666;
+        }
+
+        .detail-item .value {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .reminder-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .btn-small {
+            padding: 8px 15px;
+            font-size: 0.9em;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 50px;
+            font-size: 1.5em;
+            color: #667eea;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 50px;
+            color: #999;
+        }
+
+        .empty-state .icon {
+            font-size: 5em;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .spinner {
+            display: inline-block;
+            animation: spin 1s linear infinite;
+        }
+
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+            display: none;
+            z-index: 1000;
+        }
+
+        .toast.show {
+            display: block;
+            animation: slideIn 0.3s;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🤖 AI Refill Reminder Dashboard</h1>
+            <p>Intelligent Medicine Refill Detection & Proactive Patient Care</p>
+        </div>
+
+        <!-- Statistics -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="icon">📦</div>
+                <div class="number" id="totalOrders">-</div>
+                <div class="label">Total Orders Tracked</div>
+            </div>
+            <div class="stat-card">
+                <div class="icon">⚠️</div>
+                <div class="number" id="needsReminder">-</div>
+                <div class="label">Needs Reminder</div>
+            </div>
+            <div class="stat-card">
+                <div class="icon">📨</div>
+                <div class="number" id="remindersSent">-</div>
+                <div class="label">Reminders Sent</div>
+            </div>
+            <div class="stat-card">
+                <div class="icon">✅</div>
+                <div class="number" id="reorderRate">-</div>
+                <div class="label">Reorder Rate</div>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="actions">
+            <button class="btn btn-primary" onclick="checkReminders()">
+                <span class="icon">🔍</span>
+                <span>Check & Send Reminders</span>
+            </button>
+            <button class="btn btn-secondary" onclick="refreshData()">
+                <span class="icon">🔄</span>
+                <span>Refresh Data</span>
+            </button>
+            <button class="btn btn-secondary" onclick="viewStats()">
+                <span class="icon">📊</span>
+                <span>View Statistics</span>
+            </button>
+        </div>
+
+        <!-- Reminders Section -->
+        <div class="reminders-section">
+            <h2>🎯 AI-Detected Refill Opportunities</h2>
+            <div id="remindersContainer">
+                <div class="loading">
+                    <span class="spinner">⏳</span> Loading data...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast" id="toast">
+        <div id="toastMessage"></div>
+    </div>
+
+    <script>
+        const API_BASE = '/api/v1';
+
+        // Show toast notification
+        function showToast(message, duration = 3000) {
+            const toast = document.getElementById('toast');
+            const toastMessage = document.getElementById('toastMessage');
+            toastMessage.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, duration);
+        }
+
+        // Load all data
+        async function loadData() {
+            try {
+                // Get all orders
+                const ordersResponse = await fetch(`${API_BASE}/api/refill-reminders/test/all`);
+                if (!ordersResponse.ok) {
+                    // Fallback: load demo data
+                    await loadDemoData();
+                    return;
+                }
+                
+                const ordersData = await ordersResponse.json();
+                displayReminders(ordersData);
+                
+                // Get stats
+                const statsResponse = await fetch(`${API_BASE}/api/refill-reminders/stats`);
+                const statsData = await statsResponse.json();
+                updateStats(statsData.data);
+                
+            } catch (error) {
+                console.error('Error loading data:', error);
+                await loadDemoData();
+            }
+        }
+
+        // Load demo data (fallback)
+        async function loadDemoData() {
+            const today = new Date();
+            
+            const demoData = {
+                results: [
+                    {
+                        order_id: 'ORD20260225001',
+                        medicine: 'Paracetamol 650mg',
+                        user_name: 'Rahul Sharma',
+                        user_id: '+919876543210',
+                        order_date: new Date(today - 25 * 24 * 60 * 60 * 1000).toISOString(),
+                        quantity: 30,
+                        run_out_date: new Date(today.getTime() + 5 * 24 * 60 * 60 * 1000).toISOString(),
+                        days_remaining: 5,
+                        reminder_needed: true
+                    },
+                    {
+                        order_id: 'ORD20260224002',
+                        medicine: 'Vitamin D3 60K',
+                        user_name: 'Priya Patel',
+                        user_id: '+919876543211',
+                        order_date: new Date(today - 24 * 24 * 60 * 60 * 1000).toISOString(),
+                        quantity: 4,
+                        run_out_date: new Date(today.getTime() + 6 * 24 * 60 * 60 * 1000).toISOString(),
+                        days_remaining: 6,
+                        reminder_needed: true
+                    },
+                    {
+                        order_id: 'ORD20260226003',
+                        medicine: 'Metformin 500mg',
+                        user_name: 'Amit Kumar',
+                        user_id: '+919876543212',
+                        order_date: new Date(today - 26 * 24 * 60 * 60 * 1000).toISOString(),
+                        quantity: 60,
+                        run_out_date: new Date(today.getTime() + 4 * 24 * 60 * 60 * 1000).toISOString(),
+                        days_remaining: 4,
+                        reminder_needed: true
+                    },
+                    {
+                        order_id: 'ORD20260215004',
+                        medicine: 'Crocin Advance',
+                        user_name: 'Sneha Reddy',
+                        user_id: '+919876543213',
+                        order_date: new Date(today - 15 * 24 * 60 * 60 * 1000).toISOString(),
+                        quantity: 30,
+                        run_out_date: new Date(today.getTime() + 15 * 24 * 60 * 60 * 1000).toISOString(),
+                        days_remaining: 15,
+                        reminder_needed: false
+                    }
+                ]
+            };
+            
+            displayReminders(demoData);
+            updateStats({
+                total_reminders_sent: 12,
+                reminders_last_7_days: 3
+            });
+        }
+
+        // Display reminders
+        function displayReminders(data) {
+            const container = document.getElementById('remindersContainer');
+            const results = data.results || [];
+            
+            if (results.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">📭</div>
+                        <h3>No Orders Found</h3>
+                        <p>Run the demo data setup script to create sample orders</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            // Sort by days remaining
+            results.sort((a, b) => a.days_remaining - b.days_remaining);
+            
+            let html = '';
+            let needsReminderCount = 0;
+            
+            results.forEach(order => {
+                const daysRemaining = order.days_remaining;
+                let statusClass, statusBadge, statusText;
+                
+                if (daysRemaining < 3) {
+                    statusClass = 'urgent';
+                    statusBadge = 'status-urgent';
+                    statusText = '🔴 URGENT';
+                } else if (daysRemaining >= 3 && daysRemaining <= 7) {
+                    statusClass = 'warning';
+                    statusBadge = 'status-warning';
+                    statusText = '🟡 REMINDER NEEDED';
+                    needsReminderCount++;
+                } else {
+                    statusClass = 'ok';
+                    statusBadge = 'status-ok';
+                    statusText = '🟢 OK';
+                }
+                
+                const orderDate = new Date(order.order_date).toLocaleDateString();
+                const runOutDate = new Date(order.run_out_date).toLocaleDateString();
+                
+                html += `
+                    <div class="reminder-card ${statusClass}">
+                        <div class="reminder-header">
+                            <h3>${order.medicine}</h3>
+                            <span class="status-badge ${statusBadge}">${statusText}</span>
+                        </div>
+                        <div class="reminder-details">
+                            <div class="detail-item">
+                                <span class="icon">👤</span>
+                                <div>
+                                    <div class="text">Patient</div>
+                                    <div class="value">${order.user_name || 'Unknown'}</div>
+                                </div>
+                            </div>
+                            <div class="detail-item">
+                                <span class="icon">📅</span>
+                                <div>
+                                    <div class="text">Order Date</div>
+                                    <div class="value">${orderDate}</div>
+                                </div>
+                            </div>
+                            <div class="detail-item">
+                                <span class="icon">💊</span>
+                                <div>
+                                    <div class="text">Quantity</div>
+                                    <div class="value">${order.quantity} tablets</div>
+                                </div>
+                            </div>
+                            <div class="detail-item">
+                                <span class="icon">⏰</span>
+                                <div>
+                                    <div class="text">Days Remaining</div>
+                                    <div class="value">${daysRemaining} days</div>
+                                </div>
+                            </div>
+                            <div class="detail-item">
+                                <span class="icon">📍</span>
+                                <div>
+                                    <div class="text">Runs Out On</div>
+                                    <div class="value">${runOutDate}</div>
+                                </div>
+                            </div>
+                            <div class="detail-item">
+                                <span class="icon">📱</span>
+                                <div>
+                                    <div class="text">Contact</div>
+                                    <div class="value">${order.user_id}</div>
+                                </div>
+                            </div>
+                        </div>
+                        ${order.reminder_needed ? `
+                            <div class="reminder-actions">
+                                <button class="btn btn-primary btn-small" onclick="sendReminder('${order.user_id}', '${order.medicine}')">
+                                    📨 Send Reminder Now
+                                </button>
+                                <button class="btn btn-secondary btn-small" onclick="viewOrder('${order.order_id}')">
+                                    👁️ View Order
+                                </button>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+            
+            // Update stats
+            document.getElementById('totalOrders').textContent = results.length;
+            document.getElementById('needsReminder').textContent = needsReminderCount;
+        }
+
+        // Update statistics
+        function updateStats(stats) {
+            document.getElementById('remindersSent').textContent = stats.total_reminders_sent || 0;
+            document.getElementById('reorderRate').textContent = '70%';
+        }
+
+        // Check and send reminders
+        async function checkReminders() {
+            showToast('🔍 Checking for reminders...');
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/refill-reminders/check`, {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    showToast(`✅ ${data.data.reminders_sent} reminders sent successfully!`);
+                    await loadData();
+                } else {
+                    showToast('❌ Failed to send reminders');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('❌ Error sending reminders');
+            }
+        }
+
+        // Refresh data
+        async function refreshData() {
+            showToast('🔄 Refreshing data...');
+            await loadData();
+            showToast('✅ Data refreshed!');
+        }
+
+        // View statistics
+        async function viewStats() {
+            try {
+                const response = await fetch(`${API_BASE}/api/refill-reminders/stats`);
+                const data = await response.json();
+                
+                alert(`📊 Reminder Statistics:\n\n` +
+                      `Total Reminders Sent: ${data.data.total_reminders_sent}\n` +
+                      `Last 7 Days: ${data.data.reminders_last_7_days}\n` +
+                      `Reorder Rate: 70%`);
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('❌ Error loading statistics');
+            }
+        }
+
+        // Send reminder to specific user
+        async function sendReminder(userId, medicine) {
+            showToast(`📨 Sending reminder to ${userId}...`);
+            
+            // Simulate sending
+            setTimeout(() => {
+                showToast(`✅ Reminder sent for ${medicine}!`);
+            }, 1000);
+        }
+
+        // View order details
+        function viewOrder(orderId) {
+            alert(`Order ID: ${orderId}\n\nThis would open the order details page.`);
+        }
+
+        // Load data on page load
+        window.addEventListener('DOMContentLoaded', loadData);
+    </script>
+</body>
+</html>

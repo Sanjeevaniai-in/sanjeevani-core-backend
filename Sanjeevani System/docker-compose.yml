@@ -1,0 +1,99 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SanjeevaniRxAI – docker-compose (development + local demo)
+# ─────────────────────────────────────────────────────────────────────────────
+# Services:
+#   mongodb   – MongoDB 7 with persistent named volume
+#   backend   – FastAPI / uvicorn application
+#
+# Usage:
+#   docker-compose up --build
+#   docker-compose down -v        # also removes volumes
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── MongoDB ──────────────────────────────────────────────────────────────
+  mongodb:
+    image: mongo:7.0
+    container_name: sanjeevani_mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: pharmacy_management
+      # Un-comment and set these to enable auth in production:
+      # MONGO_INITDB_ROOT_USERNAME: admin
+      # MONGO_INITDB_ROOT_PASSWORD: changeme
+    volumes:
+      - mongo_data:/data/db
+      - mongo_config:/data/configdb
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - sanjeevani_net
+
+  # ── Backend API ───────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime          # use the lean runtime stage
+    container_name: sanjeevani_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      # ── Database ──────────────────────────────────────────────────────
+      MONGO_URI: mongodb://mongodb:27017
+      DB_NAME: pharmacy_management
+      # ── API ───────────────────────────────────────────────────────────
+      API_PREFIX: /api/v1
+      APP_TITLE: SanjeevaniRxAI API
+      APP_VERSION: "1.0.0"
+      # ── Logging / ENV ─────────────────────────────────────────────────
+      LOG_LEVEL: INFO
+      ENV: development
+      # ── Security ──────────────────────────────────────────────────────
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-change-in-production}
+      # ── LLM (Groq) ────────────────────────────────────────────────────
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: llama3-70b-8192
+      # ── Rate limiting ─────────────────────────────────────────────────
+      RATE_LIMIT_PER_MINUTE: "60"
+      # ── CORS ──────────────────────────────────────────────────────────
+      CORS_ORIGINS: '["*"]'
+    volumes:
+      # Mount local data/ folder so you can run load_data.py inside container
+      - ./data:/app/data:ro
+      # Mount scripts for easy re-runs
+      - ./scripts:/app/scripts:ro
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - sanjeevani_net
+
+# ── Volumes ─────────────────────────────────────────────────────────────────
+volumes:
+  mongo_data:
+    driver: local
+  mongo_config:
+    driver: local
+
+# ── Networks ─────────────────────────────────────────────────────────────────
+networks:
+  sanjeevani_net:
+    driver: bridge

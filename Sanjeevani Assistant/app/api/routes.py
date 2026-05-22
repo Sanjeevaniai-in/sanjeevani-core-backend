@@ -1,0 +1,929 @@
+import os
+import re
+import uuid
+from typing import Any, Dict, List, Optional
+
+import requests
+from fastapi import APIRouter, File, Form, Request, UploadFile
+from pydantic import BaseModel
+
+from ..core.config import DEFAULT_PHARMACY_ID, META_VERIFY_TOKEN, VERIFY_TOKEN, META_ACCESS_TOKEN
+from ..core.logger import logger
+from ..models.enums import ConversationState
+from ..services.db_service import (
+    create_order,
+    ensure_order_indexes,
+    get_conversation_state,
+    get_recent_orders,
+    get_user_addresses,
+    get_user_profile,
+    save_user_address,
+    update_conversation_state,
+    update_user_profile,
+)
+from ..services.medicine_matcher import MedicineMatcher
+from ..services.nlg_service import generate_and_send_response
+from ..services.nlu_service import extract_nlu
+from ..services.pharmacy_routing import (
+    bind_channel_to_pharmacy,
+    ensure_channel_binding_indexes,
+    resolve_pharmacy_id,
+)
+from ..services.rule_engine import RuleEngine
+from ..services.system_api import call_agent_process_order
+from ..services.whatsapp import send_whatsapp_text
+from ..services.whatsapp_meta import send_whatsapp_text_meta
+
+router = APIRouter()
+
+
+class FastChatRequest(BaseModel):
+    user_id: str
+    message: str
+    pharmacy_id: Optional[str] = None
+    interactive_data: Optional[str] = None
+    session_id: Optional[str] = None
+
+
+from ..services.nlg_service import generate_and_send_response, generate_response_text
+
+def _resolve_language_only_state(profile: Dict[str, Any], current_state: str) -> str:
+    if not profile.get("language"):
+        return ConversationState.COLLECT_LANGUAGE
+    if current_state in [
+        ConversationState.COLLECT_LANGUAGE,
+        ConversationState.COLLECT_NAME,
+        ConversationState.COLLECT_GENDER,
+        ConversationState.COLLECT_AGE,
+    ]:
+        return ConversationState.GREETING
+    return current_state
+
+
+def _resolve_full_onboarding_state(profile: Dict[str, Any], current_state: str) -> str:
+    if profile.get("language") and profile.get("name") and profile.get("gender") and profile.get("age"):
+        if current_state in [
+            ConversationState.COLLECT_LANGUAGE,
+            ConversationState.COLLECT_NAME,
+            ConversationState.COLLECT_GENDER,
+            ConversationState.COLLECT_AGE,
+        ]:
+            return ConversationState.GREETING
+        return current_state
+
+    if not profile.get("language"):
+        return ConversationState.COLLECT_LANGUAGE
+    if not profile.get("name"):
+        return ConversationState.COLLECT_NAME
+    if not profile.get("gender"):
+        return ConversationState.COLLECT_GENDER
+    if not profile.get("age"):
+        return ConversationState.COLLECT_AGE
+    return current_state
+
+
+def _is_project_related_message(user_text: str) -> bool:
+    # Relaxed gatekeeper: let the LLM (nlg_service) handle out-of-scope intelligently
+    return True
+
+def _infer_prescription_required(temp_data: Dict[str, Any]) -> bool:
+    rx_keywords = [
+        "amoxicillin",
+        "azithromycin",
+        "cefixime",
+        "ciprofloxacin",
+        "levofloxacin",
+        "tramadol",
+        "codeine",
+        "alprazolam",
+        "clonazepam",
+        "diazepam",
+        "zolpidem",
+        "pregabalin",
+    ]
+    otc_keywords = [
+        "paracetamol",
+        "dolo",
+        "crocin",
+        "ors",
+        "cetirizine",
+        "vitamin c",
+        "vitamin d",
+    ]
+
+    names: List[str] = []
+    findings = temp_data.get("agent_findings") or {}
+    for row in findings.get("items") or []:
+        nm = str(row.get("medicine_name") or "").strip()
+        if nm:
+            names.append(nm.lower())
+
+    med_text = str(temp_data.get("medicine_name") or "").strip().lower()
+    if med_text:
+        names.extend([part.strip() for part in med_text.split(",") if part.strip()])
+
+    if not names:
+        return False
+
+    # Any strong Rx keyword means prescription required.
+    if any(any(rx in n for rx in rx_keywords) for n in names):
+        return True
+
+    # Pure OTC requests should not require prescription.
+    if all(any(otc in n for otc in otc_keywords) for n in names):
+        return False
+
+    return False
+
+def _build_fast_reply(
+    backend_command: str,
+    profile: Dict[str, Any],
+    temp_data: Dict[str, Any],
+    recent_orders: List[Dict[str, Any]],
+    user_text: str = ""
+) -> str:
+    # Use the shared NLG logic for both App and WhatsApp
+    resp = generate_response_text(backend_command, profile, temp_data, recent_orders, user_text)
+    
+    txt = resp.get("text", "")
+    
+    # Optional: append buttons if available for APP UI rendering (ChatbotPage in Flutter can parse this if needed in the future, currently we just render text)
+    btns = resp.get("buttons")
+    if btns:
+        txt += "\n\nOptions:\n" + "\n".join([f"👉 {b['title']}" for b in btns])
+        
+    items = resp.get("list_items")
+    if items:
+        txt += "\n\n" + "\n".join([f"• {i['title']}" for i in items])
+        
+    return txt
+
+
+def _extract_text_from_image(file_path: str) -> Optional[str]:
+    primary_key = os.getenv("OCR_SPACE_API_KEY", "").strip()
+    # Fallback key keeps OCR functional in demo/non-configured environments.
+    candidate_keys = [k for k in [primary_key, "helloworld"] if k]
+
+    if not candidate_keys:
+        logger.warning("No OCR API key available for prescription OCR.")
+        return None
+
+    for key in candidate_keys:
+        try:
+            with open(file_path, "rb") as file_handle:
+                response = requests.post(
+                    "https://api.ocr.space/parse/image",
+                    files={"file": file_handle},
+                    data={
+                        "apikey": key,
+                        "language": "eng",
+                        "isOverlayRequired": False,
+                        "detectOrientation": True,
+                        "scale": True,
+                        "OCREngine": 2,
+                    },
+                    timeout=15,
+                )
+
+            payload = response.json()
+            if payload.get("IsErroredOnProcessing"):
+                logger.warning(f"OCR provider reported error: {payload.get('ErrorMessage')}")
+                continue
+
+            parsed = payload.get("ParsedResults") or []
+            if not parsed:
+                continue
+
+            text = (parsed[0].get("ParsedText") or "").strip()
+            if text:
+                return text
+        except Exception as exc:
+            logger.warning(f"OCR extraction attempt failed: {exc}")
+            continue
+
+    return None
+
+
+def _extract_medicine_candidates_from_text(ocr_text: str) -> List[str]:
+    if not ocr_text:
+        return []
+
+    ignored = {
+        "dr", "doctor", "name", "age", "sex", "date", "tab", "tablet", "capsule", "syrup",
+        "take", "morning", "night", "after", "before", "food", "daily", "days",
+    }
+    names: List[str] = []
+
+    line_pattern = re.compile(r"([A-Za-z][A-Za-z0-9\-\+]{2,}(?:\s+[A-Za-z0-9\-\+]{2,})?)")
+    for raw_line in ocr_text.splitlines():
+        line = raw_line.strip()
+        if len(line) < 3:
+            continue
+
+        for match in line_pattern.findall(line):
+            candidate = match.strip()
+            lower = candidate.lower()
+            if lower in ignored:
+                continue
+            if re.search(r"\b(mg|ml|mcg|gm|g)\b", lower):
+                candidate = re.sub(r"\b(mg|ml|mcg|gm|g)\b", "", candidate, flags=re.IGNORECASE).strip()
+            if len(candidate) < 3:
+                continue
+            names.append(candidate)
+
+    unique: List[str] = []
+    seen = set()
+    for name in names:
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(name)
+    return unique[:15]
+
+
+def _extract_items_for_agent(nlu_result, temp_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+
+    if nlu_result and getattr(nlu_result, "items", None):
+        for item in nlu_result.items:
+            if item.name:
+                items.append({"name": item.name, "quantity": item.quantity or 1})
+
+    if items:
+        return items
+
+    med_text = str(temp_data.get("medicine_name") or "").strip()
+    qty = int(temp_data.get("quantity") or 1)
+    if not med_text:
+        return []
+
+    for part in [p.strip() for p in med_text.split(",") if p.strip()]:
+        items.append({"name": part, "quantity": qty})
+    return items
+
+
+async def _ensure_agent_findings(
+    user_number: str,
+    merchant_id: str,
+    temp_data: Dict[str, Any],
+    nlu_result=None,
+) -> bool:
+    if temp_data.get("agent_findings"):
+        return True
+
+    raw_items = _extract_items_for_agent(nlu_result, temp_data)
+    if not raw_items:
+        return False
+
+    matcher = MedicineMatcher()
+    matched_items: List[Dict[str, Any]] = []
+    for item in raw_items:
+        match = await matcher.find_match(item["name"])
+        matched_items.append({"name": match["name"] if match else item["name"], "quantity": int(item.get("quantity") or 1)})
+
+    agent_resp = await call_agent_process_order(user_number, merchant_id or "GENERAL", matched_items)
+    if not (agent_resp and agent_resp.get("status") == "SUCCESS"):
+        return False
+
+    temp_data["agent_findings"] = agent_resp
+    temp_data["medicine_name"] = ", ".join([i["medicine_name"] for i in agent_resp.get("items", [])]) or temp_data.get("medicine_name")
+    temp_data["quantity"] = sum([int(i.get("requested_qty", 1)) for i in agent_resp.get("items", [])]) or temp_data.get("quantity") or 1
+    return True
+
+
+async def _run_conversation_turn(
+    *,
+    user_number: str,
+    user_text: str,
+    interactive_data: Optional[str],
+    current_state: str,
+    temp_data: Dict[str, Any],
+    profile: Dict[str, Any],
+    resolved_pharmacy_id: str,
+    app_mode: bool,
+    provider: str,
+) -> tuple[str, str, Dict[str, Any], Dict[str, Any], list]:
+    nlu_result = extract_nlu(user_text, current_state)
+    backend_command = None
+    new_state = None
+    new_temp = temp_data.copy()
+    if "cart" not in new_temp:
+        new_temp["cart"] = []
+
+    if interactive_data:
+        if interactive_data == "confirm_order":
+            new_state = ConversationState.COLLECT_ADDRESS_SELECTION
+            backend_command = "ask_address_selection"
+        elif interactive_data == "addr_new":
+            new_state = ConversationState.COLLECT_FULL_ADDRESS
+            backend_command = "ask_full_address"
+        elif interactive_data.startswith("addr_select_"):
+            idx = int(interactive_data.split("_")[-1])
+            addresses = await get_user_addresses(user_number)
+            if idx < len(addresses):
+                selected = {k: v for k, v in addresses[idx].items() if k != "_id"}
+                new_temp["address_info"] = selected
+                new_state = ConversationState.FINALIZE_ORDER
+                backend_command = "finalize_order"
+        elif interactive_data == "save_addr_yes":
+            await save_user_address(user_number, temp_data.get("address_info", {}))
+            new_state = ConversationState.FINALIZE_ORDER
+            backend_command = "finalize_order"
+        elif interactive_data == "save_addr_no":
+            new_state = ConversationState.FINALIZE_ORDER
+            backend_command = "finalize_order"
+
+    if not backend_command and nlu_result.intent in ["ORDER_MEDICINE", "PROVIDE_INFO"] and nlu_result.items:
+        if provider == "twilio":
+            send_whatsapp_text(user_number, "Checking inventory and pharmacy safety... Please wait a moment.", provider="twilio")
+        elif provider == "meta":
+            send_whatsapp_text_meta(user_number, "Checking inventory and pharmacy safety... Please wait a moment.")
+
+        await _ensure_agent_findings(
+            user_number=user_number,
+            merchant_id=resolved_pharmacy_id or "GENERAL",
+            temp_data=new_temp,
+            nlu_result=nlu_result,
+        )
+        findings = new_temp.get("agent_findings") or {}
+        if findings.get("status") == "SUCCESS":
+            needs_rx = bool(findings.get("requires_prescription")) or _infer_prescription_required(new_temp)
+            findings["requires_prescription"] = needs_rx
+            new_temp["agent_findings"] = findings
+            if needs_rx:
+                new_state = ConversationState.AWAITING_PRESCRIPTION
+                backend_command = "ask_prescription_strict"
+            else:
+                new_state = ConversationState.CONFIRM_ORDER
+                backend_command = "ask_order_confirmation"
+
+    if not backend_command:
+        new_state, new_temp, backend_command = RuleEngine.process(
+            nlu_result=nlu_result,
+            current_state=current_state,
+            user_profile=profile,
+            temp_data=temp_data,
+            user_text=user_text,
+            interactive_data=interactive_data,
+        )
+
+    if app_mode and backend_command in [
+        "ask_name", "ask_name_again", "ask_gender", "ask_gender_again", "ask_age", "ask_age_again"
+    ]:
+        backend_command = "registration_complete"
+        new_state = ConversationState.GREETING
+
+    if current_state == ConversationState.COLLECT_LANGUAGE and not nlu_result.extracted_user_fields.language:
+        lowered = user_text.lower()
+        if "eng" in lowered:
+            nlu_result.extracted_user_fields.language = "English"
+        elif "hind" in lowered or "???" in user_text:
+            nlu_result.extracted_user_fields.language = "Hindi"
+        elif "mara" in lowered or "????" in user_text:
+            nlu_result.extracted_user_fields.language = "Marathi"
+
+    if any(val is not None for val in nlu_result.extracted_user_fields.model_dump().values()):
+        await update_user_profile(user_number, nlu_result.extracted_user_fields.model_dump(exclude_none=True))
+        profile = await get_user_profile(user_number) or profile
+
+    if backend_command in ["ask_order_confirmation", "ask_order_confirmation_again", "finalize_order"]:
+        await _ensure_agent_findings(
+            user_number=user_number,
+            merchant_id=resolved_pharmacy_id or "GENERAL",
+            temp_data=new_temp,
+            nlu_result=nlu_result,
+        )
+        findings = new_temp.get("agent_findings") or {}
+        if bool(findings.get("requires_prescription")) or _infer_prescription_required(new_temp):
+            findings["requires_prescription"] = True
+            new_temp["agent_findings"] = findings
+            backend_command = "ask_prescription_strict"
+            new_state = ConversationState.AWAITING_PRESCRIPTION
+        rows = findings.get("items") or []
+        if rows and any(not bool(i.get("in_stock", False)) for i in rows):
+            backend_command = "inventory_check_failed"
+            new_state = ConversationState.GREETING
+
+    recent_orders = await get_recent_orders(user_number) if backend_command == "show_tracking" else []
+
+    if backend_command == "ask_address_selection" and new_state == ConversationState.COLLECT_ADDRESS_SELECTION:
+        addresses = await get_user_addresses(user_number)
+        new_temp["available_addresses"] = [{k: v for k, v in a.items() if k != "_id"} for a in addresses]
+
+    if backend_command == "finalize_order":
+        handoff_ref = new_temp.get("handoff_reference") or f"REQ-{uuid.uuid4().hex[:8].upper()}"
+        new_temp["handoff_reference"] = handoff_ref
+
+        med_items = new_temp.get("cart", [])
+        if not med_items and new_temp.get("medicine_name"):
+            med_items = [{"name": new_temp.get("medicine_name"), "quantity": int(new_temp.get("quantity") or 1)}]
+        
+        med_summary = ", ".join([f"{i['name']} (x{i['quantity']})" for i in med_items])
+        total_qty = sum([int(i['quantity']) for i in med_items])
+        addr = (new_temp.get("address_info") or {}).get("full_address") or "Local Pickup / Pending"
+        patient_name = profile.get("name") or "Customer"
+
+        created_order_id = None
+        if med_items:
+            created_order_id = await create_order(
+                user_number,
+                {
+                    "patient_name": patient_name,
+                    "medicine_name": med_summary,
+                    "quantity": total_qty,
+                    "cart_items": med_items,
+                    "delivery_address": addr,
+                    "pharmacy_id": resolved_pharmacy_id or DEFAULT_PHARMACY_ID,
+                    "merchant_id": resolved_pharmacy_id or DEFAULT_PHARMACY_ID,
+                    "source_channel": "app" if app_mode else "whatsapp",
+                    "source_provider": provider,
+                    "source_message_id": handoff_ref,
+                    "order_channel": "Sanjeevani App" if app_mode else "WhatsApp",
+                    "payment_method": "Unpaid",
+                },
+            )
+
+        if created_order_id:
+            new_temp["order_id"] = created_order_id
+            backend_command = "order_placed"
+        else:
+            backend_command = "handoff_to_system_for_confirmation"
+        await update_conversation_state(user_number, ConversationState.GREETING, {})
+    else:
+        await update_conversation_state(user_number, new_state, new_temp)
+
+    return backend_command, new_state, new_temp, profile, recent_orders
+
+
+@router.on_event("startup")
+async def startup_indexes():
+    await ensure_order_indexes()
+    await ensure_channel_binding_indexes()
+
+
+@router.post("/chat/fast")
+async def chat_fast(body: FastChatRequest):
+    user_number = body.user_id.strip()
+    user_text = (body.message or "").strip()
+    interactive_data = (body.interactive_data or "").strip() or None
+
+    if not user_number or not user_text:
+        return {"status": "error", "message": "user_id and message are required"}
+
+    profile = await get_user_profile(user_number) or {"user_id": user_number}
+    state_doc = await get_conversation_state(user_number)
+    resolved_pharmacy_id = (
+        (body.pharmacy_id or "").strip()
+        or await resolve_pharmacy_id(channel="app", channel_user_id=user_number)
+        or DEFAULT_PHARMACY_ID
+    )
+    if resolved_pharmacy_id:
+        await bind_channel_to_pharmacy(channel="app", channel_user_id=user_number, pharmacy_id=resolved_pharmacy_id)
+
+    # Note: Using _resolve_full_onboarding_state instead of language_only to match WhatsApp identical flow.
+    current_state = _resolve_full_onboarding_state(profile, state_doc.get("state", ConversationState.COLLECT_LANGUAGE))
+    temp_data = state_doc.get("temp_data", {})
+
+    backend_command, new_state, new_temp, profile, recent_orders = await _run_conversation_turn(
+        user_number=user_number,
+        user_text=user_text,
+        interactive_data=interactive_data,
+        current_state=current_state,
+        temp_data=temp_data,
+        profile=profile,
+        resolved_pharmacy_id=resolved_pharmacy_id,
+        app_mode=True,
+        provider="app",
+    )
+
+    reply = _build_fast_reply(backend_command, profile, new_temp, recent_orders, user_text=user_text)
+    return {
+        "status": "success",
+        "text": reply,
+        "reply": reply,
+        "state": str(new_state),
+        "session_id": body.session_id or user_number,
+        "backend_command": backend_command,
+        "pharmacy_id": resolved_pharmacy_id,
+        "extracted_data": {
+            "medicine_name": new_temp.get("medicine_name"),
+            "quantity": new_temp.get("quantity"),
+            "handoff_reference": new_temp.get("handoff_reference"),
+            "order_id": new_temp.get("order_id"),
+        },
+    }
+
+
+@router.post("/chat/upload-prescription")
+async def upload_prescription_fast(
+    file: UploadFile = File(...),
+    user_id: str = Form(...),
+    pharmacy_id: str = Form(default=""),
+    session_id: str = Form(default=""),
+):
+    user_number = user_id.strip()
+    if not user_number:
+        return {"status": "error", "message": "user_id is required"}
+
+    content_type = (file.content_type or "").lower()
+    extension = os.path.splitext(file.filename or "")[1].lower()
+    image_exts = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".heic"}
+    if (content_type and not content_type.startswith("image/")) and extension not in image_exts:
+        return {"status": "error", "message": "Please upload image files only (jpg/png/webp)."}
+
+    uploads_dir = os.path.join("uploads", "prescriptions")
+    os.makedirs(uploads_dir, exist_ok=True)
+    extension = extension or ".jpg"
+    safe_name = f"{user_number.replace(':', '_').replace('+', '')}_{uuid.uuid4().hex[:10]}{extension}"
+    file_path = os.path.join(uploads_dir, safe_name)
+
+    with open(file_path, "wb") as target:
+        target.write(await file.read())
+
+    ocr_text = _extract_text_from_image(file_path)
+    if not ocr_text:
+        return {
+            "status": "error",
+            "session_id": session_id or user_number,
+            "message": "Prescription received, but text was unclear. Please upload a clearer image.",
+            "data": {"extracted_medicines": [], "required_next_fields": ["medicine_confirmation"]},
+        }
+
+    # Pass OCR to LLM to verify and extract
+    from ..services.ai_service import groq_client, GROQ_MODEL
+    import json
+    
+    candidates = []
+    is_valid_prescription = True
+    if groq_client:
+        try:
+            prompt = f"""
+Analyze this prescription text and extract medicine information.
+OCR Text: {ocr_text}
+Respond in JSON format only:
+{{
+    "is_valid_prescription": true/false,
+    "medicines": [{"name": "Medicine Name"}]
+}}
+"""
+            completion = groq_client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=[
+                    {"role": "system", "content": "You are a medical prescription verification expert. Always respond with valid JSON only."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                response_format={"type": "json_object"}
+            )
+            result = json.loads(completion.choices[0].message.content)
+            is_valid_prescription = result.get("is_valid_prescription", True)
+            candidates = [m.get("name") for m in result.get("medicines", []) if m.get("name")]
+        except Exception as e:
+            logger.error(f"LLM verification failed: {e}")
+
+    # Fallback if LLM fails or returns empty
+    if not candidates:
+        nlu_result = extract_nlu(ocr_text, ConversationState.AWAITING_PRESCRIPTION)
+        names_from_nlu = [item.name for item in (nlu_result.items or []) if item.name]
+        candidates = names_from_nlu or _extract_medicine_candidates_from_text(ocr_text)
+
+    matcher = MedicineMatcher()
+    extracted_medicines: List[Dict[str, Any]] = []
+    unmatched_names: List[str] = []
+    seen = set()
+    for candidate in candidates:
+        key = candidate.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        match = await matcher.find_match(candidate)
+        if match:
+            extracted_medicines.append(
+                {
+                    "input": candidate,
+                    "name": match.get("name", candidate),
+                    "confidence": match.get("score", 0.0),
+                    "requires_prescription": bool(match.get("requires_prescription", False)),
+                }
+            )
+        else:
+            unmatched_names.append(candidate)
+
+    state_doc = await get_conversation_state(user_number)
+    temp_data = state_doc.get("temp_data", {}).copy()
+
+    resolved_pharmacy_id = pharmacy_id.strip() or await resolve_pharmacy_id(channel="app", channel_user_id=user_number) or DEFAULT_PHARMACY_ID
+    if resolved_pharmacy_id:
+        await bind_channel_to_pharmacy(channel="app", channel_user_id=user_number, pharmacy_id=resolved_pharmacy_id)
+
+    extracted_names = [item["name"] for item in extracted_medicines]
+    
+    # If the LLM successfully analyzed, but flagged it as NOT a prescription
+    if not is_valid_prescription:
+        message = (
+            "⚠️ The uploaded image does not appear to be a valid medical prescription.\n"
+            "Please ensure you are uploading a clear photo of a doctor's prescription."
+        )
+        return {
+            "status": "partial_success",
+            "message": message,
+            "text": message,
+            "reply": message,
+            "session_id": session_id or user_number,
+            "state": str(ConversationState.AWAITING_PRESCRIPTION),
+            "data": {
+                "ocr_text_preview": ocr_text[:400],
+                "extracted_medicines": [],
+                "unmatched_candidates": unmatched_names,
+                "required_next_fields": ["medicine_confirmation"],
+                "pharmacy_id": resolved_pharmacy_id,
+            },
+        }
+
+    if extracted_names:
+        temp_data["medicine_name"] = ", ".join(extracted_names)
+        temp_data["quantity"] = temp_data.get("quantity") or 1
+        temp_data["prescription_uploaded"] = True
+        temp_data["prescription_file"] = safe_name
+        new_state = ConversationState.CONFIRM_ORDER
+        await update_conversation_state(user_number, new_state, temp_data)
+    else:
+        new_state = ConversationState.AWAITING_PRESCRIPTION
+        await update_conversation_state(user_number, new_state, temp_data)
+
+    if extracted_names:
+        medicine_lines = "\n".join([f"{idx}. {name}" for idx, name in enumerate(extracted_names, start=1)])
+        message = (
+            "Prescription ✅ Verified by AI Assistant.\n\n"
+            "I extracted these medicines:\n"
+            f"{medicine_lines}\n\n"
+            "Please confirm quantity and delivery address."
+        )
+    else:
+        message = (
+            "Prescription uploaded, but no active medicines were identified by the AI.\n"
+            "Please type medicine names manually (example: Dolo 650 x 2)."
+        )
+
+    return {
+        "status": "success" if extracted_names else "partial_success",
+        "message": message,
+        "text": message,
+        "reply": message,
+        "session_id": session_id or user_number,
+        "state": str(new_state),
+        "data": {
+            "ocr_text_preview": ocr_text[:400],
+            "extracted_medicines": extracted_medicines,
+            "unmatched_candidates": unmatched_names,
+            "required_next_fields": ["quantity_confirmation", "delivery_address"] if extracted_names else ["medicine_confirmation"],
+            "pharmacy_id": resolved_pharmacy_id,
+        },
+    }
+
+
+@router.get("/webhook")
+async def verify_webhook(request: Request):
+    p = dict(request.query_params)
+    if p.get("hub.mode") == "subscribe" and p.get("hub.verify_token") == VERIFY_TOKEN:
+        return int(p.get("hub.challenge", 0))
+    return "Verification failed"
+
+
+@router.post("/webhook")
+async def handle_message(request: Request):
+    try:
+        data = await request.form()
+    except Exception:
+        return {"status": "no_form_data"}
+
+    user_number = data.get("From", "")
+    user_text = data.get("Body", "")
+    source_message_id = data.get("MessageSid")
+
+    media_url = data.get("MediaUrl0")
+    media_content_type = data.get("MediaContentType0", "")
+
+    if not user_number or not user_text:
+        try:
+            json_data = await request.json()
+            user_number = json_data.get("From")
+            user_text = json_data.get("Body")
+            source_message_id = source_message_id or json_data.get("MessageSid")
+        except Exception:
+            pass
+
+    if not user_number and not user_text and not media_url:
+        return {"status": "ignored"}
+
+    if media_url and media_content_type.startswith("image/"):
+        try:
+            img_resp = requests.get(media_url, timeout=15)
+            if img_resp.status_code == 200:
+                uploads_dir = os.path.join("uploads", "prescriptions")
+                os.makedirs(uploads_dir, exist_ok=True)
+                safe_name = f"{user_number.replace(':', '_').replace('+', '')}_{uuid.uuid4().hex[:10]}.jpg"
+                file_path = os.path.join(uploads_dir, safe_name)
+                with open(file_path, "wb") as f:
+                    f.write(img_resp.content)
+                
+                # Process image
+                ocr_text = _extract_text_from_image(file_path)
+                if ocr_text:
+                    nlu_result = extract_nlu(ocr_text, ConversationState.AWAITING_PRESCRIPTION)
+                    names_from_nlu = [item.name for item in (nlu_result.items or []) if item.name]
+                    candidates = names_from_nlu or _extract_medicine_candidates_from_text(ocr_text)
+                    
+                    matcher = MedicineMatcher()
+                    extracted_names = []
+                    seen = set()
+                    for c in candidates:
+                        k = c.strip().lower()
+                        if k and k not in seen:
+                            seen.add(k)
+                            # since find_match is async, we need await
+                            m = await matcher.find_match(c)
+                            if m: extracted_names.append(m.get("name", c))
+                    
+                    if extracted_names:
+                        med_names_str = ", ".join(extracted_names)
+                        user_text = f"I want {med_names_str}"
+                        
+                        # Save state that prescription is uploaded
+                        state_doc = await get_conversation_state(user_number)
+                        temp_data = state_doc.get("temp_data", {})
+                        temp_data["prescription_uploaded"] = True
+                        temp_data["prescription_file"] = safe_name
+                        await update_conversation_state(user_number, state_doc.get("state", ConversationState.GREETING), temp_data)
+                        
+                        send_whatsapp_text(user_number, f"Prescription scanned! Extracted: {med_names_str}. Let me check the stock...", provider="twilio")
+                    else:
+                        send_whatsapp_text(user_number, "Prescription scanned, but no clear medicines found. Please type the names.", provider="twilio")
+                        return {"status": "success", "source_message_id": source_message_id}
+                else:
+                    send_whatsapp_text(user_number, "I couldn't read the prescription. Please send a clearer image.", provider="twilio")
+                    return {"status": "success", "source_message_id": source_message_id}
+        except Exception as e:
+            logger.error(f"Image download/processing failed: {e}")
+
+    if not user_number or not user_text:
+        return {"status": "ignored"}
+
+    interactive_data = data.get("ButtonPayload")
+    if interactive_data:
+        user_text = interactive_data.replace("_", " ")
+
+    profile = await get_user_profile(user_number) or {"user_id": user_number}
+    state_doc = await get_conversation_state(user_number)
+    resolved_pharmacy_id = await resolve_pharmacy_id(channel="whatsapp", channel_user_id=user_number)
+    if resolved_pharmacy_id:
+        await bind_channel_to_pharmacy(channel="whatsapp", channel_user_id=user_number, pharmacy_id=resolved_pharmacy_id)
+
+    current_state = _resolve_full_onboarding_state(profile, state_doc.get("state", ConversationState.COLLECT_LANGUAGE))
+    temp_data = state_doc.get("temp_data", {})
+
+    backend_command, _, new_temp, profile, recent_orders = await _run_conversation_turn(
+        user_number=user_number,
+        user_text=user_text,
+        interactive_data=interactive_data,
+        current_state=current_state,
+        temp_data=temp_data,
+        profile=profile,
+        resolved_pharmacy_id=resolved_pharmacy_id or DEFAULT_PHARMACY_ID,
+        app_mode=False,
+        provider="twilio",
+    )
+
+    generate_and_send_response(user_number, backend_command, profile, new_temp, recent_orders, provider="twilio", user_text=user_text)
+    return {"status": "success", "source_message_id": source_message_id}
+
+
+@router.get("/webhook/meta")
+async def verify_meta_webhook(request: Request):
+    p = dict(request.query_params)
+    if p.get("hub.mode") == "subscribe" and p.get("hub.verify_token") == META_VERIFY_TOKEN:
+        return int(p.get("hub.challenge", 0))
+    return "Verification failed"
+
+
+@router.post("/webhook/meta")
+async def handle_meta_message(request: Request):
+    try:
+        data = await request.json()
+    except Exception:
+        return {"status": "success"}
+
+    try:
+        entry = data["entry"][0]
+        changes = entry["changes"][0]
+        value = changes["value"]
+        if "statuses" in value:
+            return {"status": "success"}
+        messages = value.get("messages", [])
+        if not messages:
+            return {"status": "success"}
+
+        msg = messages[0]
+        user_number = f"whatsapp:+{msg['from']}"
+        user_text = ""
+        interactive_data = None
+
+        if msg["type"] == "text":
+            user_text = msg["text"]["body"]
+        elif msg["type"] == "image":
+            media_id = msg["image"]["id"]
+            if META_ACCESS_TOKEN:
+                try:
+                    headers = {"Authorization": f"Bearer {META_ACCESS_TOKEN}"}
+                    info_url = f"https://graph.facebook.com/v17.0/{media_id}"
+                    info_resp = requests.get(info_url, headers=headers, timeout=15)
+                    if info_resp.status_code == 200:
+                        download_url = info_resp.json().get("url")
+                        if download_url:
+                            img_resp = requests.get(download_url, headers=headers, timeout=20)
+                            if img_resp.status_code == 200:
+                                uploads_dir = os.path.join("uploads", "prescriptions")
+                                os.makedirs(uploads_dir, exist_ok=True)
+                                safe_name = f"{user_number.replace(':', '_').replace('+', '')}_{uuid.uuid4().hex[:10]}.jpg"
+                                file_path = os.path.join(uploads_dir, safe_name)
+                                with open(file_path, "wb") as f:
+                                    f.write(img_resp.content)
+                                
+                                ocr_text = _extract_text_from_image(file_path)
+                                if ocr_text:
+                                    nlu_result = extract_nlu(ocr_text, ConversationState.AWAITING_PRESCRIPTION)
+                                    names_from_nlu = [item.name for item in (nlu_result.items or []) if item.name]
+                                    candidates = names_from_nlu or _extract_medicine_candidates_from_text(ocr_text)
+                                    
+                                    matcher = MedicineMatcher()
+                                    extracted_names = []
+                                    seen = set()
+                                    for c in candidates:
+                                        k = c.strip().lower()
+                                        if k and k not in seen:
+                                            seen.add(k)
+                                            m = await matcher.find_match(c)
+                                            if m: extracted_names.append(m.get("name", c))
+                                    
+                                    if extracted_names:
+                                        state_doc = await get_conversation_state(user_number)
+                                        temp_data = state_doc.get("temp_data", {})
+                                        if "cart" not in temp_data: temp_data["cart"] = []
+                                        
+                                        for name in extracted_names:
+                                            temp_data["cart"].append({
+                                                "name": name,
+                                                "quantity": 1,
+                                                "id": f"cart_{len(temp_data['cart'])}"
+                                            })
+                                        
+                                        temp_data["prescription_uploaded"] = True
+                                        temp_data["prescription_file"] = safe_name
+                                        
+                                        await update_conversation_state(user_number, ConversationState.VIEW_CART, temp_data)
+                                        
+                                        send_whatsapp_text_meta(user_number, f"✅ Prescription scanned! Added {len(extracted_names)} items to your cart.")
+                                        # Force user_text to show cart to trigger NLG
+                                        user_text = "show cart"
+                                        interactive_data = "show_cart"
+                                    else:
+                                        send_whatsapp_text_meta(user_number, "Prescription scanned, but no clear medicines found. Please type the names.")
+                                        return {"status": "success"}
+                                else:
+                                    send_whatsapp_text_meta(user_number, "I couldn't read the prescription. Please send a clearer image.")
+                                    return {"status": "success"}
+                except Exception as e:
+                    logger.error(f"Meta image processing failed: {e}")
+        elif msg["type"] == "interactive":
+            interactive = msg["interactive"]
+            if interactive["type"] == "button_reply":
+                interactive_data = interactive["button_reply"]["id"]
+                user_text = interactive["button_reply"]["title"]
+            elif interactive["type"] == "list_reply":
+                interactive_data = interactive["list_reply"]["id"]
+                user_text = interactive["list_reply"]["title"]
+    except Exception:
+        return {"status": "success"}
+
+    profile = await get_user_profile(user_number) or {"user_id": user_number}
+    state_doc = await get_conversation_state(user_number)
+    resolved_pharmacy_id = await resolve_pharmacy_id(channel="whatsapp", channel_user_id=user_number)
+
+    current_state = _resolve_full_onboarding_state(profile, state_doc.get("state", ConversationState.COLLECT_LANGUAGE))
+    temp_data = state_doc.get("temp_data", {})
+
+    backend_command, _, new_temp, profile, recent_orders = await _run_conversation_turn(
+        user_number=user_number,
+        user_text=user_text,
+        interactive_data=interactive_data,
+        current_state=current_state,
+        temp_data=temp_data,
+        profile=profile,
+        resolved_pharmacy_id=resolved_pharmacy_id or DEFAULT_PHARMACY_ID,
+        app_mode=False,
+        provider="meta",
+    )
+
+    generate_and_send_response(user_number, backend_command, profile, new_temp, recent_orders, provider="meta", user_text=user_text)
+    return {"status": "success"}

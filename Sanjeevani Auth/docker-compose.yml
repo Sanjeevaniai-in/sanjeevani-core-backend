@@ -1,0 +1,43 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: sanjeevani-auth-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  auth:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sanjeevani-auth-api
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
+    environment:
+      APP_ENV: development
+      APP_PORT: 8001
+      APP_WORKERS: 2
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DB_NAME: sanjeevani_auth
+      JWT_SECRET: dev_secret_replace_this_in_production_123456
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRY_HOURS: 24
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:8080
+      SUPPORTED_APPS: dashboard,storefront,ops_hub
+      DEFAULT_SUBSCRIPTION_PLAN: free
+
+volumes:
+  mongo_data:

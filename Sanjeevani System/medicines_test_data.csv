@@ -1,0 +1,105 @@
+Medicine Name,Category,Generic Name,Brand Name,Selling Price,MRP,Stock,Expiry Date
+Paracetamol 650mg (Dolo),Analgesics/Antipyretics,Paracetamol,Micro Labs,30.5,35.0,400,2028-04-06
+Amoxicillin 500mg,Antibiotics,Amoxicillin,Abbott,85.0,105.0,237,2027-05-18
+Cetirizine 10mg (Okacet),Antihistamines,Cetirizine,Cipla,18.0,25.0,469,2027-10-26
+Azithromycin 500mg (Azee),Antibiotics,Azithromycin,Cipla,120.0,145.0,495,2027-04-25
+Metformin 500mg (Glycomet),Antidiabetic,Metformin,USV,45.0,60.0,379,2027-08-03
+Atorvastatin 10mg (Lipvas),Cardiovascular,Atorvastatin,Cipla,95.0,115.0,476,2028-04-21
+Pantoprazole 40mg (Pan-40),Antacids,Pantoprazole,Alkem,150.0,180.0,40,2027-12-17
+Telmisartan 40mg (Telma),Cardiovascular,Telmisartan,Glenmark,110.0,135.0,368,2028-04-10
+Omeprazole 20mg (Omez),Antacids,Omeprazole,Dr Reddy's,65.0,85.0,313,2028-05-27
+Voglibose 0.3mg,Antidiabetic,Voglibose,Sun Pharma,140.0,175.0,402,2027-11-18
+Augmentin 625 DUO,Antibiotics,Amoxicillin + Clavulanic Acid,GSK,210.0,250.0,68,2028-02-02
+Thyrox 50mcg,Hormones,Thyroxine,Macleods,180.0,210.0,436,2028-01-06
+Montair LC,Respiratory,Montelukast + Levocetirizine,Cipla,195.0,240.0,281,2028-05-11
+Zifi 200mg,Antibiotics,Cefixime,FDC Ltd,110.0,135.0,424,2028-05-13
+Taxim-O 200,Antibiotics,Cefixime,Alkem,105.0,130.0,425,2027-09-26
+Calpol 500mg,Analgesics,Paracetamol,GSK,15.0,20.0,398,2026-12-01
+Combiflam,Analgesics,Ibuprofen + Paracetamol,Sanofi,45.0,55.0,64,2028-03-23
+Betadine Gargle,Antiseptic,Povidone-Iodine,Win-Medicare,135.0,160.0,404,2026-10-23
+Voveran SR 100,Analgesics,Diclofenac,Novartis,180.0,220.0,178,2027-12-23
+Allegra 120mg,Antihistamines,Fexofenadine,Sanofi,210.0,260.0,211,2027-11-02
+Medication-21 SR,Antacids,GenericComp-21,Sun Pharma,384.51,576.29,182,2026-11-30
+Medication-22 XR,Antidiabetic,GenericComp-22,Lupin,139.29,127.04,344,2027-09-28
+Medication-23 XR,Gastrointestinal,GenericComp-23,Zydus,152.34,494.9,429,2028-03-28
+Medication-24 650,Dermatology,GenericComp-24,Dr Reddy's,483.34,39.32,852,2026-12-21
+Medication-25 SR,Antibiotics,GenericComp-25,Lupin,167.71,300.32,845,2028-01-05
+Medication-26 650,Vitamins,GenericComp-26,Torrent,13.3,316.33,983,2026-10-06
+Medication-27 100,Cardiovascular,GenericComp-27,Sun Pharma,233.85,209.3,848,2026-11-20
+Medication-28 SR,Gastrointestinal,GenericComp-28,Cipla,367.55,150.66,506,2028-05-26
+Medication-29 SR,Cardiovascular,GenericComp-29,Lupin,138.68,580.94,884,2027-08-02
+Medication-30 100,Cardiovascular,GenericComp-30,Dr Reddy's,194.36,208.16,418,2027-10-11
+Medication-31 SR,Gastrointestinal,GenericComp-31,Cipla,487.24,89.06,507,2028-04-30
+Medication-32 650,Respiratory,GenericComp-32,Torrent,364.93,86.65,184,2027-09-30
+Medication-33 100,Dermatology,GenericComp-33,Dr Reddy's,317.24,521.66,742,2028-05-05
+Medication-34 500,Gastrointestinal,GenericComp-34,Lupin,93.85,218.2,80,2027-01-13
+Medication-35 XR,Respiratory,GenericComp-35,Dr Reddy's,438.18,551.28,131,2028-04-22
+Medication-36 XR,Antacids,GenericComp-36,Torrent,338.42,548.01,273,2028-05-16
+Medication-37 DS,Dermatology,GenericComp-37,Torrent,29.46,26.8,459,2027-02-07
+Medication-38 100,Cardiovascular,GenericComp-38,Sun Pharma,259.13,37.78,657,2027-08-27
+Medication-39 XR,Antidiabetic,GenericComp-39,Cipla,233.52,379.61,75,2028-02-07
+Medication-40 DS,Vitamins,GenericComp-40,Sun Pharma,224.82,103.57,412,2027-02-08
+Medication-41 100,Antacids,GenericComp-41,Dr Reddy's,419.01,561.73,850,2027-03-11
+Medication-42 100,Antibiotics,GenericComp-42,Lupin,287.64,418.93,763,2027-01-25
+Medication-43 500,Dermatology,GenericComp-43,Zydus,430.96,144.8,73,2027-08-20
+Medication-44 SR,Gastrointestinal,GenericComp-44,Dr Reddy's,493.39,351.25,925,2026-10-14
+Medication-45 XR,Antidiabetic,GenericComp-45,Dr Reddy's,198.58,434.89,513,2027-07-18
+Medication-46 650,Dermatology,GenericComp-46,Zydus,244.15,443.77,865,2027-07-09
+Medication-47 500,Analgesics,GenericComp-47,Dr Reddy's,324.28,541.72,563,2027-04-16
+Medication-48 100,Antacids,GenericComp-48,Dr Reddy's,162.94,85.83,697,2027-04-27
+Medication-49 XR,Dermatology,GenericComp-49,Zydus,453.71,229.68,220,2027-05-07
+Medication-50 SR,Gastrointestinal,GenericComp-50,Lupin,319.43,139.47,830,2027-04-27
+Medication-51 SR,Respiratory,GenericComp-51,Torrent,233.78,85.77,276,2027-10-03
+Medication-52 100,Antibiotics,GenericComp-52,Lupin,67.64,245.15,976,2027-09-06
+Medication-53 100,Analgesics,GenericComp-53,Sun Pharma,190.15,150.69,457,2026-11-10
+Medication-54 DS,Analgesics,GenericComp-54,Torrent,134.63,450.45,803,2028-01-25
+Medication-55 500,Dermatology,GenericComp-55,Sun Pharma,434.91,593.98,382,2027-01-21
+Medication-56 XR,Antacids,GenericComp-56,Zydus,35.8,551.01,91,2028-05-01
+Medication-57 500,Respiratory,GenericComp-57,Dr Reddy's,210.93,473.37,534,2028-03-20
+Medication-58 650,Cardiovascular,GenericComp-58,Dr Reddy's,251.05,30.5,842,2027-01-12
+Medication-59 XR,Antacids,GenericComp-59,Sun Pharma,26.31,103.71,710,2027-02-20
+Medication-60 500,Cardiovascular,GenericComp-60,Torrent,242.65,140.93,91,2028-03-16
+Medication-61 SR,Respiratory,GenericComp-61,Sun Pharma,195.06,124.93,199,2027-07-01
+Medication-62 500,Vitamins,GenericComp-62,Lupin,439.37,71.94,711,2026-10-27
+Medication-63 SR,Respiratory,GenericComp-63,Lupin,122.2,507.89,170,2027-01-23
+Medication-64 500,Antacids,GenericComp-64,Sun Pharma,86.29,166.76,388,2027-10-15
+Medication-65 DS,Antacids,GenericComp-65,Sun Pharma,239.71,26.28,399,2028-02-13
+Medication-66 650,Antidiabetic,GenericComp-66,Lupin,200.6,574.68,686,2028-01-14
+Medication-67 500,Antacids,GenericComp-67,Lupin,417.84,466.39,566,2027-09-23
+Medication-68 650,Antibiotics,GenericComp-68,Cipla,106.68,184.4,177,2028-04-02
+Medication-69 100,Antidiabetic,GenericComp-69,Torrent,469.94,59.49,253,2028-03-21
+Medication-70 DS,Cardiovascular,GenericComp-70,Dr Reddy's,241.84,331.99,239,2027-02-12
+Medication-71 DS,Vitamins,GenericComp-71,Zydus,282.84,181.46,141,2028-04-14
+Medication-72 XR,Cardiovascular,GenericComp-72,Cipla,38.18,263.33,550,2027-11-09
+Medication-73 650,Gastrointestinal,GenericComp-73,Cipla,346.48,188.6,250,2028-02-23
+Medication-74 100,Vitamins,GenericComp-74,Torrent,18.52,154.05,822,2027-02-10
+Medication-75 500,Antidiabetic,GenericComp-75,Dr Reddy's,81.78,266.22,679,2027-11-27
+Medication-76 SR,Antacids,GenericComp-76,Lupin,468.76,340.91,109,2026-12-30
+Medication-77 500,Gastrointestinal,GenericComp-77,Cipla,413.05,242.26,142,2027-09-18
+Medication-78 650,Dermatology,GenericComp-78,Sun Pharma,78.81,174.55,750,2028-03-17
+Medication-79 XR,Vitamins,GenericComp-79,Sun Pharma,391.73,544.07,772,2027-04-09
+Medication-80 650,Vitamins,GenericComp-80,Sun Pharma,79.46,142.02,833,2028-05-28
+Medication-81 XR,Respiratory,GenericComp-81,Lupin,347.53,154.87,250,2027-05-07
+Medication-82 500,Antibiotics,GenericComp-82,Dr Reddy's,252.68,43.23,278,2027-12-09
+Medication-83 DS,Antacids,GenericComp-83,Sun Pharma,30.57,319.93,887,2027-04-13
+Medication-84 650,Gastrointestinal,GenericComp-84,Torrent,260.25,149.94,862,2028-05-21
+Medication-85 500,Antibiotics,GenericComp-85,Dr Reddy's,337.18,451.54,465,2028-01-08
+Medication-86 650,Respiratory,GenericComp-86,Dr Reddy's,420.33,308.17,516,2027-07-23
+Medication-87 XR,Respiratory,GenericComp-87,Cipla,255.8,125.26,62,2028-02-17
+Medication-88 500,Antacids,GenericComp-88,Cipla,231.16,478.57,746,2027-07-06
+Medication-89 DS,Cardiovascular,GenericComp-89,Cipla,359.51,491.63,298,2027-10-20
+Medication-90 500,Cardiovascular,GenericComp-90,Lupin,311.28,410.64,54,2028-03-24
+Medication-91 XR,Respiratory,GenericComp-91,Cipla,423.86,97.88,430,2027-09-21
+Medication-92 XR,Antidiabetic,GenericComp-92,Zydus,31.41,178.84,275,2026-10-12
+Medication-93 DS,Vitamins,GenericComp-93,Torrent,436.71,570.56,989,2027-03-22
+Medication-94 500,Cardiovascular,GenericComp-94,Lupin,174.43,94.0,678,2027-12-10
+Medication-95 100,Respiratory,GenericComp-95,Cipla,122.92,539.37,317,2026-12-18
+Medication-96 XR,Antibiotics,GenericComp-96,Dr Reddy's,112.95,28.36,637,2026-11-13
+Medication-97 100,Vitamins,GenericComp-97,Zydus,499.21,428.67,933,2028-04-16
+Medication-98 650,Antidiabetic,GenericComp-98,Torrent,405.13,431.75,374,2027-06-04
+Medication-99 100,Cardiovascular,GenericComp-99,Dr Reddy's,277.89,373.72,880,2028-02-04
+Medication-100 500,Analgesics,GenericComp-100,Cipla,487.1,290.23,148,2027-11-07
+Medication-101 DS,Vitamins,GenericComp-101,Sun Pharma,241.54,566.46,147,2027-10-24
+Medication-102 SR,Antidiabetic,GenericComp-102,Sun Pharma,65.56,583.94,937,2027-01-27
+Medication-103 500,Respiratory,GenericComp-103,Torrent,301.67,514.92,209,2027-03-08
+Medication-104 XR,Antidiabetic,GenericComp-104,Sun Pharma,307.01,329.21,536,2027-10-14

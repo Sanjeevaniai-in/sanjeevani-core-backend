@@ -1,0 +1,71 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# render.yaml  –  Render Blueprint for SanjeevaniRxAI Backend
+# ─────────────────────────────────────────────────────────────────────────────
+# Docs: https://render.com/docs/blueprint-spec
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  - type: web
+    name: sanjeevani-engine
+    runtime: python
+    plan: free           # change to "starter" / "standard" for production
+    region: oregon       # or: frankfurt, singapore, ohio, virginia
+    pythonVersion: "3.11.9"
+
+    # ── Build ────────────────────────────────────────────────────────────────
+    buildCommand: "chmod +x build.sh && ./build.sh"
+
+    # ── Start ────────────────────────────────────────────────────────────────
+    # Render injects $PORT automatically – we read it here
+    startCommand: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port $PORT
+      --workers 1
+      --log-level info
+      --access-log
+
+    # ── Health check ──────────────────────────────────────────────────────────
+    healthCheckPath: /health
+
+    # ── Root directory (all paths below are relative to this) ────────────────
+    # Leave commented unless your repo root is NOT the backend folder.
+    # rootDir: .
+
+    # ── Environment variables ──────────────────────────────────────────────
+    # Set SENSITIVE values (MONGO_URI, GROQ_API_KEY, SECRET_KEY) directly
+    # in the Render dashboard → Environment tab.  Non-sensitive defaults below.
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+
+      - key: PORT
+        value: "10000"
+
+      - key: ENV
+        value: production
+
+      - key: LOG_LEVEL
+        value: INFO
+
+      - key: API_PREFIX
+        value: /api/v1
+
+      - key: APP_TITLE
+        value: SanjeevaniRxAI API
+
+      - key: APP_VERSION
+        value: "1.0.0"
+
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "60"
+
+      # CORS – replace with your actual Vercel / frontend URL in production
+      - key: CORS_ORIGINS
+        value: '["*"]'
+
+      # ── Secrets – set these in Render Dashboard, NOT here ─────────────────
+      # MONGO_URI      (your MongoDB Atlas connection string)
+      # GROQ_API_KEY   (your Groq API key)
+      # SECRET_KEY     (strong random string, e.g. openssl rand -hex 32)
+      # DB_NAME        (default: pharmacy_management)

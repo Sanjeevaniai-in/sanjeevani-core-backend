@@ -1,0 +1,79 @@
+# ─────────────────────────────────────────────────────────────
+# Sanjeevani Backend — Root .gitignore
+# ─────────────────────────────────────────────────────────────
+
+# ── Environment / Secrets ──────────────────────────────────────
+.env
+.env.*
+!.env.example        # allow the template file
+*.pem
+*.key
+secrets.json
+google-credentials.json
+
+# ── Python Virtual Environments ────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+.virtualenv/
+__pypackages__/
+
+# ── Python Cache ───────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+
+# ── Python Build / Dist ────────────────────────────────────────
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+site-packages/
+wheels/
+
+# ── Testing / Coverage ─────────────────────────────────────────
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+nosetests.xml
+
+# ── Uploads (prescription images, PDFs, etc.) ─────────────────
+uploads/
+**/uploads/
+*.webp
+*.pdf
+
+# ── Logs ───────────────────────────────────────────────────────
+*.log
+logs/
+log/
+
+# ── IDE / Editor ───────────────────────────────────────────────
+.vscode/
+.idea/
+*.iml
+*.suo
+*.user
+.DS_Store
+Thumbs.db
+
+# ── Docker local overrides ─────────────────────────────────────
+docker-compose.override.yml
+
+# ── Node (if any frontend tooling) ────────────────────────────
+node_modules/
+npm-debug.log*
+
+# ── Jupyter ────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ── Mypy / Ruff ────────────────────────────────────────────────
+.mypy_cache/
+.ruff_cache/
