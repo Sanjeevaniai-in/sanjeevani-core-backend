@@ -402,11 +402,14 @@ Sanjeevani System/
 
 ## 🤝 Contributing
 
-1. Fork the repo
-2. Create a feature branch: `git checkout -b feature/my-feature`
-3. Make your changes
-4. Run tests: `pytest tests/ -v`
-5. Push and open a Pull Request
+We love contributions! Whether you're a student, a friend, or an open-source contributor, we'd love your help.
+
+👉 **[Please read our full Contributing Guide (CONTRIBUTING.md) here!](./CONTRIBUTING.md)** 👈
+
+It contains everything you need to know about:
+- What this project is and how it helps the world 🌍
+- What kind of solutions we accept (Bug fixes, UI improvements, etc.) 💡
+- A step-by-step beginner's guide to making your first Pull Request! 🛠️
 
 > ⚠️ **Never commit `.env` files or real API keys.** Use `.env.example` as a template.
 
