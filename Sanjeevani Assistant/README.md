@@ -53,7 +53,7 @@ Sanjeevani is an AI-powered WhatsApp pharmacy assistant designed to streamline t
 1.  **Clone the repository**:
     ```bash
     git clone <repository-url>
-    cd sanjeevani-whatsapp-chatbot
+    cd "Sanjeevani Assistant"
     ```
 
 2.  **Create a virtual environment**:
@@ -137,4 +137,4 @@ This project includes a `render.yaml` for quick deployment.
 
 ## 🛡️ License
 
-This project is licensed under the MIT License.
+This is a **private** repository. All rights reserved © 2026 Sanjeevani AI.

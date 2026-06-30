@@ -116,8 +116,8 @@ cd "Sanjeevani System"
 
 # Create virtual environment
 python -m venv .venv
-.venv\Scripts\activate          # Windows
-# source .venv/bin/activate     # macOS / Linux
+source .venv/bin/activate       # macOS / Linux
+# .venv\Scripts\activate        # Windows
 
 # Install dependencies
 pip install -r requirements.txt
@@ -254,7 +254,7 @@ Base URL: `http://localhost:8000/api/v1`
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/agents/process-order` | Run full 4-Agent pipeline on an order |
+| `POST` | `/agent/process-order` | Run full 4-Agent pipeline on an order |
 
 ### 🔔 Alerts
 
