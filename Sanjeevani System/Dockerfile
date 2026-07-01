@@ -55,7 +55,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
     ENV=production \
-    PORT=10000 \
+    PORT=8080 \
     LOG_LEVEL=INFO
 
 # Data and Uploads directory setup
@@ -63,8 +63,8 @@ RUN mkdir -p /app/data /app/uploads && chown -R appuser:appgroup /app/data /app/
 
 USER appuser
 
-# Expose port (Render ignores this but good for clarity)
-EXPOSE 10000
+# Expose port (Cloud Run sets this dynamically)
+EXPOSE 8080
 
-# Production server: uvicorn (JSON array format for better signal handling)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "10000", "--workers", "2", "--log-level", "info", "--access-log"]
+# Production server: uvicorn with dynamic port binding for Cloud Run
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080} --workers 2 --log-level info --access-log"]

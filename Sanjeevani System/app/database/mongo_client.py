@@ -4,7 +4,7 @@ import time
 from typing import Any, Optional
 
 from pymongo import MongoClient
-from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
+from pymongo.errors import ConfigurationError, ConnectionFailure, ServerSelectionTimeoutError
 
 from app.config import settings
 from app.database.pg_document_db import PostgresDocumentDatabase, PostgresDocumentStore
@@ -73,7 +73,7 @@ def get_client() -> Any:
                 extra={"dsn_prefix": dsn[:24], "attempt": attempt},
             )
             return _store
-        except (ConnectionFailure, ServerSelectionTimeoutError) as exc:
+        except (ConfigurationError, ConnectionFailure, ServerSelectionTimeoutError) as exc:
             last_exc = exc
             if attempt < _MAX_RETRIES:
                 wait = _RETRY_BACKOFF[attempt - 1]

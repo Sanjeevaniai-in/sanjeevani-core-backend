@@ -68,7 +68,7 @@ class _PrettyFormatter(logging.Formatter):
         "{color}{bold}{asctime}{reset}  "
         "{color}{levelname:<9}{reset} "
         "{cyan}{name:<30}{reset}  "
-        "{func}() L{lineno:<4}  {bold}│{reset} {message}"
+        "{func}() L{lineno:<4}  {bold}|{reset} {message}"
     )
 
     def format(self, record: logging.LogRecord) -> str:  # noqa: A003

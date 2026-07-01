@@ -24,7 +24,14 @@ router = APIRouter(prefix="/alerts", tags=["Alerts"])
 logger = get_logger(__name__)
 _inv_svc = InventoryIntelligenceService()
 _saf_svc = SafetyValidationService()
-_refill_outreach = RefillOutreachService()
+_refill_outreach: RefillOutreachService | None = None
+
+
+def _get_refill_outreach() -> RefillOutreachService:
+    global _refill_outreach
+    if _refill_outreach is None:
+        _refill_outreach = RefillOutreachService()
+    return _refill_outreach
 
 
 @router.get("/", summary="List alerts")
@@ -187,13 +194,14 @@ def generate_refill_outreach(
     user: dict = Depends(get_current_user),
 ):
     try:
+        refill_outreach = _get_refill_outreach()
         if body.use_demo_data:
-            result = _refill_outreach.run_demo_outreach(
+            result = refill_outreach.run_demo_outreach(
                 merchant_id=user["merchant_id"],
                 demo_file_path=body.demo_file_path,
             )
         else:
-            result = _refill_outreach.run_live_outreach(
+            result = refill_outreach.run_live_outreach(
                 merchant_id=user["merchant_id"],
                 reminder_days=body.reminder_days or [10, 28],
             )

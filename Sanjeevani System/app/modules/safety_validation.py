@@ -491,12 +491,17 @@ class SafetyValidationService:
             }
         )
 
-    def _get_inventory(self, product_id: str) -> Optional[Dict[str, Any]]:
+    def _get_inventory(self, product_id: str, merchant_id: str) -> Optional[Dict[str, Any]]:
         return self.db["inventory"].find_one(
             {
-                "$or": [
-                    {"product_id": product_id},
-                    {"medicine_name": product_id},
+                "$and": [
+                    {
+                        "$or": [
+                            {"product_id": product_id},
+                            {"medicine_name": product_id},
+                        ]
+                    },
+                    {"merchant_id": merchant_id},
                 ]
             }
         )

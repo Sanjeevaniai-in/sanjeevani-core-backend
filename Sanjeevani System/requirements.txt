@@ -42,3 +42,7 @@ python-multipart==0.0.9
 email-validator==2.1.1
 pytz==2024.1
 python-telegram-bot>=20.0     # Keeping if still used locally for some reason, but removing others
+
+# Testing
+pytest==8.2.2
+mongomock==4.1.2

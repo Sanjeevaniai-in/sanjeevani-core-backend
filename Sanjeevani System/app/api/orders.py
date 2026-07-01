@@ -204,10 +204,9 @@ def _resolve_target_merchant(body: QuickOrderRequest, user: dict) -> str:
     user_merchant = user.get("merchant_id")
 
     if requested and user_merchant and requested != user_merchant:
-        # Allow delivery app / customers to place orders for any target pharmacy
-        if body.source_provider in ["delivery_app", "app"] or user.get("role") in ["customer", "rider", "consumer"]:
-            pass
-        else:
+        role = user.get("role")
+        is_external_order_source = body.source_channel in {"delivery_app", "customer_app"}
+        if role not in {"customer", "rider", "consumer"} or not is_external_order_source:
             raise HTTPException(status_code=403, detail="Merchant mismatch. You can place orders only for your own pharmacy.")
 
     resolved = requested or user_merchant or settings.DEFAULT_PHARMACY_ID
@@ -240,6 +239,7 @@ def validate_order(body: ValidateOrderRequest, user: dict = Depends(get_current_
             body.patient_id,
             body.medicine_name,
             body.quantity,
+            merchant_id=user["merchant_id"],
             prescription_provided=body.prescription_provided,
         )
         return {"status": "ok", "data": result}
