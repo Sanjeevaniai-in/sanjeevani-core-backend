@@ -318,7 +318,27 @@ async def signup(signup_data: SignupRequest):
 
 @router.post("/login", summary="Login with email/password", response_model=TokenResponse)
 async def login(login_data: LoginRequest):
+
+    """
+    Authenticate a user with email and password.
+
+    Verifies the user's credentials, checks if the app is supported
+    and the account is active, then issues an access token.
+
+    Args:
+        login_data (LoginRequest): Contains email, password, app_id,
+            and requested_role for the login attempt.
+
+    Returns:
+        TokenResponse: An access token and related user session data.
+
+    Raises:
+        HTTPException 401: If the email or password is invalid.
+        HTTPException 403: If the user's account is deactivated.
+    """
     _ensure_supported_app(login_data.app_id)
+    
+    
     db = get_db()
     
     user = await db["users"].find_one({"email": login_data.email})
@@ -344,8 +364,22 @@ async def login(login_data: LoginRequest):
 
 @router.post("/google/token", summary="Verify Google ID Token", response_model=TokenResponse)
 async def google_auth_token(auth_data: GoogleAuthRequest):
-    """
-    Verifies a Google ID Token sent from a mobile app.
+   """
+    Verify a Google ID Token and authenticate the user.
+
+    Validates the ID token issued by Google against the configured
+    Google client ID, then issues an access token for the app.
+
+    Args:
+        auth_data (GoogleAuthRequest): Contains the Google ID token
+            and app-related information to be verified.
+
+    Returns:
+        TokenResponse: An access token and related user session data.
+
+    Raises:
+        HTTPException 401: If the Google ID token is invalid, expired,
+            or fails verification.
     """
     _ensure_supported_app(auth_data.app_id)
     
@@ -415,6 +449,17 @@ async def google_auth_token(auth_data: GoogleAuthRequest):
     response_model=SupportedAppsResponse,
 )
 async def list_supported_apps():
+    
+    """
+    List all client applications supported by the auth system.
+
+    Returns:
+        SupportedAppsResponse: A list of supported apps, each with
+            its app_id and a short description.
+    """
+    apps = [
+        SupportedApp(app_id=app_id, description=APP_DESCRIPTIONS.get(app_id, "Confi...
+        ...
     apps = [
         SupportedApp(app_id=app_id, description=APP_DESCRIPTIONS.get(app_id, "Configured client application."))
         for app_id in settings.supported_apps_list
@@ -424,9 +469,15 @@ async def list_supported_apps():
 
 @router.get("/pharmacies", summary="List all registered pharmacies", response_model=list[UserResponse])
 async def list_pharmacies():
-    """
-    Returns all users who have an active pharmacy_id.
-    This serves as the 'actual database' list for the map.
+   """
+    List all registered pharmacies.
+
+    Returns all users who have an active pharmacy_id, serving as the
+    'actual database' list used to populate the map.
+
+    Returns:
+        list[UserResponse]: A list of users representing registered
+            pharmacies with an active pharmacy_id.
     """
     db = get_db()
     cursor = db["users"].find({
@@ -443,9 +494,23 @@ async def google_login(
     app_id: str = "dashboard",
     requested_role: str = "user",
 ):
-    """
-    Redirects the user to Google's OAuth2 authorization page.
-    This is for testing server-side flow in the browser.
+   """
+    Initiate the Google OAuth2 login flow.
+
+    Redirects the user to Google's OAuth2 authorization page so they
+    can grant access. Intended for testing the server-side OAuth flow
+    directly in the browser.
+
+    Args:
+        request (Request): The incoming request, used to determine
+            the base URL for the redirect callback.
+        app_id (str): The client application initiating the login.
+            Defaults to "dashboard".
+        requested_role (str): The role being requested for the user.
+            Defaults to "user".
+
+    Returns:
+        RedirectResponse: A redirect to Google's OAuth2 consent screen.
     """
     _ensure_supported_app(app_id)
 
@@ -666,6 +731,22 @@ async def google_callback(request: Request):
 
 @router.get("/me", summary="Get current user profile", response_model=UserResponse)
 async def get_me(current_user: dict = Depends(get_current_user)):
+
+    """
+    Get the profile of the currently authenticated user.
+
+    Args:
+        current_user (dict): The authenticated user's data, resolved
+            from the access token via the get_current_user dependency.
+
+    Returns:
+        UserResponse: The current user's profile information.
+
+    Raises:
+        HTTPException 404: If the user record cannot be found.
+    """
+    db = get_db()
+    ...
     db = get_db()
     user = await db["users"].find_one({"email": current_user["email"]})
     if not user:
@@ -678,6 +759,26 @@ async def get_me(current_user: dict = Depends(get_current_user)):
 
 @router.get("/me/context", summary="Get current user profile with active app context")
 async def get_me_context(current_user: dict = Depends(get_current_user)):
+
+    """
+    Get the current user's profile along with their active app context.
+
+    In addition to the user's profile, resolves which membership
+    (app_id) is currently active for the requesting application.
+
+    Args:
+        current_user (dict): The authenticated user's data, resolved
+            from the access token via the get_current_user dependency.
+
+    Returns:
+        dict: The user's profile data along with active membership
+            details for the current app context.
+
+    Raises:
+        HTTPException 404: If the user record cannot be found.
+    """
+    db = get_db()
+    ...
     db = get_db()
     user = await db["users"].find_one({"email": current_user["email"]})
     if not user:
@@ -704,6 +805,31 @@ async def get_me_context(current_user: dict = Depends(get_current_user)):
 
 @router.put("/profile", summary="Update current user profile", response_model=UserResponse)
 async def update_profile(
+    
+    profile_data: ProfileUpdateRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Update the profile of the currently authenticated user.
+
+    Only fields provided in the request (non-None values) are
+    updated. If no fields are provided, the current user profile
+    is returned unchanged.
+
+    Args:
+        profile_data (ProfileUpdateRequest): The profile fields to
+            update. Fields left as None are ignored.
+        current_user (dict): The authenticated user's data, resolved
+            from the access token via the get_current_user dependency.
+
+    Returns:
+        UserResponse: The updated (or unchanged) user profile.
+
+    Raises:
+        HTTPException 404: If the user record cannot be found.
+    """
+    db = get_db()
+    ...
     profile_data: ProfileUpdateRequest,
     current_user: dict = Depends(get_current_user)
 ):
@@ -736,6 +862,34 @@ async def update_profile(
 
 @router.post("/complete-profile", summary="Complete social auth profile registration", response_model=UserResponse)
 async def complete_profile(
+    
+    profile_data: CompleteProfileRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Complete a user's social auth profile registration.
+
+    Updates the user's core profile fields (name, age, address) and
+    also creates or updates a role-specific record (e.g. patient or
+    delivery partner) based on the user's role, so the profile is
+    fully set up after signing in via a social auth provider.
+
+    Args:
+        profile_data (CompleteProfileRequest): The profile details
+            submitted to complete registration, including name, age,
+            address, and role-related information.
+        current_user (dict): The authenticated user's data, resolved
+            from the access token via the get_current_user dependency.
+
+    Returns:
+        UserResponse: The updated user profile after completion.
+
+    Raises:
+        HTTPException 404: If the user record cannot be found.
+    """
+    db = get_db()
+    now = datetime.utcnow()
+    ...
     profile_data: CompleteProfileRequest,
     current_user: dict = Depends(get_current_user)
 ):
@@ -793,6 +947,23 @@ async def complete_profile(
 
 @router.post("/logout", summary="Logout current user")
 async def logout(current_user: dict = Depends(get_current_user)):
+
+    """
+    Log out the currently authenticated user.
+
+    Closes the user's current session. The actual access token
+    invalidation/cleanup is handled by the client discarding the token.
+
+    Args:
+        current_user (dict): The authenticated user's data, resolved
+            from the access token via the get_current_user dependency.
+
+    Returns:
+        dict: A status message confirming the session was closed.
+    """
+    return {
+        "status": "success",
+        ...
     return {
         "status": "success",
         "message": f"Session closed for {current_user['email']}. Delete the token on the client.",
@@ -801,6 +972,33 @@ async def logout(current_user: dict = Depends(get_current_user)):
 
 @router.post("/invite", summary="Invite staff to your pharmacy workspace")
 async def invite_staff(
+    
+    invite_data: InviteRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Invite a staff member to join the current user's pharmacy workspace.
+
+    Verifies the inviting user belongs to a pharmacy, ensures the
+    invited email is not already a member of that pharmacy, and checks
+    that no pending invite already exists before creating a new one.
+
+    Args:
+        invite_data (InviteRequest): The email (and related details)
+            of the staff member being invited.
+        current_user (dict): The authenticated user's data, resolved
+            from the access token via the get_current_user dependency.
+
+    Returns:
+        dict: Confirmation details of the created invitation.
+
+    Raises:
+        HTTPException 400: If the current user has no registered
+            pharmacy, the invited user is already a member of the
+            pharmacy, or a pending invite already exists for them.
+    """
+    db = get_db()
+    ...
     invite_data: InviteRequest,
     current_user: dict = Depends(get_current_user)
 ):

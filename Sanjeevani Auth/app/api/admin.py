@@ -80,10 +80,17 @@ def _serialize_user(u: dict) -> dict:
 
 @router.get("/pharmacies", summary="List all registered pharmacies")
 async def list_pharmacies():
-    """
-    Return every pharmacy (user) registered in the system.
-    Includes WhatsApp config status, subscription plan, activity.
-    Token is NEVER returned — masked as ****XXXXXX.
+   """
+    List all pharmacies registered in the system.
+
+    Returns every pharmacy (user) along with WhatsApp configuration
+    status, subscription plan, and activity details. Sensitive tokens
+    are never returned in full — they are masked as ****XXXXXX.
+
+    Returns:
+        dict: A summary containing the total pharmacy count, counts
+            of WhatsApp-enabled and active pharmacies, and the list
+            of serialized pharmacy records.
     """
     db = get_db()
     users = await db["users"].find(
@@ -111,7 +118,19 @@ async def list_pharmacies():
 
 @router.get("/pharmacies/{pharmacy_id}", summary="Get single pharmacy detail")
 async def get_pharmacy(pharmacy_id: str):
-    """Get full detail of a single pharmacy by pharmacy_id."""
+  """
+    Get full detail of a single pharmacy by its pharmacy_id.
+
+    Args:
+        pharmacy_id (str): The unique identifier of the pharmacy.
+
+    Returns:
+        dict: A status field and the serialized pharmacy details.
+
+    Raises:
+        HTTPException 404: If no pharmacy with the given pharmacy_id
+            exists.
+    """
     db = get_db()
     user = await db["users"].find_one(
         {"pharmacy_id": pharmacy_id},
@@ -124,9 +143,25 @@ async def get_pharmacy(pharmacy_id: str):
 
 @router.post("/pharmacies/{pharmacy_id}/whatsapp", summary="Setup WhatsApp for a pharmacy")
 async def setup_whatsapp(pharmacy_id: str, body: WhatsAppSetupRequest):
-    """
-    Store Meta WhatsApp credentials for a pharmacy.
-    Token is stored as-is (add encryption in production).
+   """
+    Configure WhatsApp integration credentials for a pharmacy.
+
+    Stores the Meta WhatsApp phone number ID, access token, display
+    number, and bot name for the given pharmacy. The token is
+    currently stored as-is (add encryption before production use).
+
+    Args:
+        pharmacy_id (str): The unique identifier of the pharmacy.
+        body (WhatsAppSetupRequest): The WhatsApp credentials and
+            configuration details to store.
+
+    Returns:
+        dict: A status field confirming the update, along with the
+            updated pharmacy details.
+
+    Raises:
+        HTTPException 404: If no pharmacy with the given pharmacy_id
+            exists.
     """
     db = get_db()
     user = await db["users"].find_one({"pharmacy_id": pharmacy_id})
@@ -157,7 +192,22 @@ async def setup_whatsapp(pharmacy_id: str, body: WhatsAppSetupRequest):
 
 @router.delete("/pharmacies/{pharmacy_id}/whatsapp", summary="Remove WhatsApp config")
 async def remove_whatsapp(pharmacy_id: str):
-    """Clear WhatsApp credentials and disable the bot for a pharmacy."""
+   """
+    Clear WhatsApp credentials and disable the bot for a pharmacy.
+
+    Resets all stored WhatsApp configuration fields to empty and
+    disables WhatsApp for the specified pharmacy.
+
+    Args:
+        pharmacy_id (str): The unique identifier of the pharmacy.
+
+    Returns:
+        dict: A status field and confirmation message.
+
+    Raises:
+        HTTPException 404: If no pharmacy with the given pharmacy_id
+            exists.
+    """
     db = get_db()
     user = await db["users"].find_one({"pharmacy_id": pharmacy_id})
     if not user:
@@ -182,7 +232,22 @@ async def remove_whatsapp(pharmacy_id: str):
 
 @router.patch("/pharmacies/{pharmacy_id}/toggle", summary="Toggle pharmacy active status")
 async def toggle_pharmacy_status(pharmacy_id: str):
-    """Toggle is_active for a pharmacy account."""
+   """
+    Toggle the active/inactive status of a pharmacy account.
+
+    Flips the pharmacy's current is_active value — activates it if
+    currently inactive, or deactivates it if currently active.
+
+    Args:
+        pharmacy_id (str): The unique identifier of the pharmacy.
+
+    Returns:
+        dict: A status field and the pharmacy's new active state.
+
+    Raises:
+        HTTPException 404: If no pharmacy with the given pharmacy_id
+            exists.
+    """
     db = get_db()
     user = await db["users"].find_one({"pharmacy_id": pharmacy_id})
     if not user:
@@ -197,7 +262,17 @@ async def toggle_pharmacy_status(pharmacy_id: str):
 
 @router.get("/stats", summary="Admin dashboard stats")
 async def admin_stats():
-    """Quick stats for the admin dashboard header."""
+  """
+    Get quick summary statistics for the admin dashboard header.
+
+    Aggregates counts of total pharmacies, active pharmacies,
+    pharmacies with WhatsApp bots live, and paid subscribers.
+
+    Returns:
+        dict: A status field along with total_pharmacies,
+            active_pharmacies, whatsapp_bots_live, and
+            paid_subscribers counts.
+    """
     db = get_db()
     total = await db["users"].count_documents({})
     active = await db["users"].count_documents({"is_active": True})
