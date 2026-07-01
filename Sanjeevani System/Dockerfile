@@ -66,5 +66,5 @@ USER appuser
 # Expose port (Cloud Run sets this dynamically)
 EXPOSE 8080
 
-# Production server: uvicorn with dynamic port binding for Cloud Run
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080} --workers 2 --log-level info --access-log"]
+# Production server: run main.py which automatically binds to the correct PORT
+CMD ["python", "-m", "app.main"]
