@@ -1,6 +1,6 @@
-# 💊 ShivanyaRx AI - Backend System 🧠
+# 💊 Sanjeevani System — Backend API
 
-Welcome to the **Backend System** of ShivanyaRx AI! This is the "brain" of our pharmacy platform. It handles all the data, powers the AI predictions for medicine refills, manages inventory intelligence, and connects all our apps (Web & Mobile) together. 
+Welcome to the **Backend System** of Sanjeevani! This is the core of the pharmacy platform. It handles all data, powers AI predictions for medicine refills, manages inventory intelligence, and connects all apps (Web & Mobile) together.
 
 It is built completely with **Python** using the super-fast **FastAPI** framework and connects to a **MongoDB** database. 🚀
 
@@ -35,11 +35,11 @@ Now, let's install everything the backend needs to run:
 pip install -r requirements.txt
 ```
 
-### 4️⃣ Configure Settings Environment
-We need to tell the app where the database and secret keys are. 
-1. Copy the `.env.example` file and paste it to create a new file named `.env`.
-2. Open `.env` and make sure the `MONGO_URI` points to your MongoDB.
-3. Add your keys like `GROQ_API_KEY` for AI functionalities.
+### 4️⃣ Set Up Environment Variables
+We need to tell the app where the database and secret keys are.
+1. Copy `.env.example` and rename it to `.env`.
+2. Open `.env` and set the `MONGO_URI` to your MongoDB connection string.
+3. Add your `GROQ_API_KEY` and any other required keys.
 
 ### 5️⃣ Load Sample Data
 Let's populate the database with some testing data (patients, orders, inventory) so the app isn't empty!
@@ -82,7 +82,7 @@ Your API will be running on `http://localhost:8000` just like that! To view the 
 
 ## 🧪 Testing and Analytics
 
-* To run batch AI predictions for refills: 
+* To run batch AI predictions for refills:
   ```bash
   python scripts/generate_predictions.py
   ```

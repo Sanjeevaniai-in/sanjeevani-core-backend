@@ -10,8 +10,8 @@ Sanjeevani is a next-generation, AI-powered pharmacy operations and medicine del
 4. **Landing Page:** The public face of the ecosystem.
 
 ## ❤️ Why and How Does This Help?
-Local pharmacies often struggle with digital inventory, online orders, and tracking. Sanjeevani digitizes the entire pipeline! 
-By using AI, we automate prescription reading, suggest refill reminders, and provide a seamless app experience for customers and delivery riders. 
+Local pharmacies often struggle with digital inventory, online orders, and tracking. Sanjeevani digitizes the entire pipeline!
+By using AI, we automate prescription reading, suggest refill reminders, and provide a seamless app experience for customers and delivery riders.
 **Your contributions directly help in building technology that can make healthcare delivery faster, safer, and more accessible.**
 
 ## 💡 What Solutions Do We Accept?
@@ -47,7 +47,7 @@ git checkout -b fix/annoying-bug
 ```
 
 ### 4. Make Your Changes
-Write your code! Make sure to test it locally. (Check the `README.md` for instructions on how to run the project).
+Write your code! Make sure to test it locally (check the `README.md` for instructions on how to run the project).
 
 ### 5. Commit Your Changes
 Save your work with a clear message explaining what you did:
