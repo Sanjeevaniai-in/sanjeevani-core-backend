@@ -8,6 +8,8 @@
 !.env.example        # allow the template file
 *.pem
 *.key
+key.json
+**/key.json
 secrets.json
 google-credentials.json
 
