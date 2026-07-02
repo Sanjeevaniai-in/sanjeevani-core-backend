@@ -432,6 +432,18 @@ async def place_manual_order(
     db.consumer_orders.insert_one(new_order)
     _upsert_patient_from_order(db, merchant_id=merchant_id, order=new_order)
     
+    # Deduct stock for manual order to simulate real-time inventory changes
+    if product:
+        current_stock = float(product.get("Current Stock", 0))
+        new_stock = max(0.0, current_stock - body.quantity)
+        db.products.update_one({"_id": product["_id"]}, {"$set": {"Current Stock": new_stock}})
+        
+        # Also try to update inventory if it exists there
+        db.inventory.update_one(
+            {"Medicine Name": {"$regex": f"^{medicine_name}$", "$options": "i"}, "merchant_id": merchant_id},
+            {"$set": {"Current Stock": new_stock}}
+        )
+    
     logger.info(f"📝 Manual Order Created: {order_id} for {body.patient_name}")
     
     return {
