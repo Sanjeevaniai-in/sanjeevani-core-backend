@@ -376,6 +376,7 @@ class DashboardAnalyticsService:
                         "m": {"$month": "$Order Date"},
                         "d": {"$dayOfMonth": "$Order Date"},
                     },
+
                     "value": group_value,
                 }
             },
@@ -385,6 +386,7 @@ class DashboardAnalyticsService:
             {
                 "date": f"{r['_id']['y']}-{r['_id']['m']:02d}-{r['_id']['d']:02d}",
                 "value": round(float(r["value"]), 2),
+                "predicted_value": round(float(r["value"]) * (1.1 if metric == 'revenue' else 1.15), 2),
             }
             for r in self.db["consumer_orders"].aggregate(pipeline)
         ]
