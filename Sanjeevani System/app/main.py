@@ -43,6 +43,7 @@ from app.api import (
     recommendations,
     chat,
     agent_routes,
+    testing,
 )
 from app.config import settings
 from app.database.mongo_client import close_client, get_client, health_check
@@ -151,6 +152,7 @@ def create_app() -> FastAPI:
     app.include_router(alerts.router, prefix=prefix)
     app.include_router(chat.router, prefix=prefix)
     app.include_router(agent_routes.router, prefix=prefix)
+    app.include_router(testing.router, prefix=prefix)
 
     # ── Static Files ──────────────────────────────────────────────────────
     # Base directory of the project
