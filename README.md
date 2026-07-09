@@ -428,3 +428,8 @@ Built with ❤️ for better patient outcomes
 **[System API Docs](http://localhost:8000/api/v1/docs)** · **[Auth API Docs](http://localhost:8001/api/v1/docs)** · **[GitHub](https://github.com/Sanjeevaniai-in/sanjeevani-core-backend)**
 
 </div>
+
+## Contributing
+
+<!-- gfi-2 -->
+Thanks for considering a contribution! See open issues labeled `good first issue`.
