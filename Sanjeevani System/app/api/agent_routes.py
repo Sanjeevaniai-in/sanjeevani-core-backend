@@ -18,9 +18,24 @@ class AgentOrderRequest(BaseModel):
 
 @router.post("/process-order")
 async def process_order_with_agents(request: AgentOrderRequest):
-    """
-    Endpoint for the Assistant to call with extracted order items.
-    Runs the 4-Agent pipeline and returns a safety-validated response.
+    """Process an order submitted by the Assistant through the AI agent pipeline.
+
+    Endpoint for the Assistant to call with extracted order items. Runs the
+    4-Agent pipeline (extraction, validation, safety, and fulfillment) and
+    returns a safety-validated response.
+
+    Args:
+        request: Order details including the requesting user's phone number,
+            the target merchant/pharmacy ID, and the list of extracted items
+            (name and quantity) to process.
+
+    Returns:
+        dict: The safety-validated result produced by the agent orchestrator,
+            as returned by ``AgentOrchestrator.process_order``.
+
+    Raises:
+        HTTPException: 500 if the agent pipeline fails for any reason (e.g.
+            orchestration error, downstream service failure).
     """
     logger.info(f"AI Agent: Processing order for {request.user_phone} at pharmacy {request.merchant_id}")
     

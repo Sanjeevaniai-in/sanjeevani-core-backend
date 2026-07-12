@@ -402,7 +402,29 @@ def _fefo_allocate(db, merchant_id: str, product_key: str, base_qty: int) -> Lis
 
 @router.post("/", summary="Add a new product")
 def add_product(product: ProductCreate, user: dict = Depends(get_current_user)):
-    """Manually add a product to the catalog."""
+    """Manually add a new product to the catalog.
+
+    Rejects duplicate medicine names (case-insensitive) for the same
+    merchant. Normalizes packaging levels, auto-generates a Product ID and
+    a primary unit barcode if none is supplied, and — if initial stock is
+    greater than zero — creates a matching stock batch and an
+    ``initial_stock`` ledger entry.
+
+    Args:
+        product: The product fields to create, including medicine name,
+            category, pricing, packaging, barcodes, and initial stock.
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` scopes the product to the caller's
+            pharmacy.
+
+    Returns:
+        dict: ``{"status": "ok", "message": <str>, "product_id": <str>}``
+            with the newly created product's ID.
+
+    Raises:
+        HTTPException: 400 if a product with the same medicine name already
+            exists for this merchant.
+    """
     db = get_db()
     merchant_id = user["merchant_id"]
     packaging = _normalize_packaging(product.packaging)
@@ -523,7 +545,24 @@ def add_product(product: ProductCreate, user: dict = Depends(get_current_user)):
 
 @router.post("/bulk", summary="Bulk add products")
 def bulk_add_products(products: list[ProductCreate], user: dict = Depends(get_current_user)):
-    """Bulk add products to the catalog."""
+    """Bulk add multiple products to the catalog in one request.
+
+    Products whose medicine name already exists for the merchant
+    (case-insensitive) are skipped rather than causing the whole request
+    to fail. A stock batch is created for each newly inserted product that
+    has a positive initial stock.
+
+    Args:
+        products: List of product definitions to add.
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` scopes the products to the caller's
+            pharmacy.
+
+    Returns:
+        dict: ``{"status": "ok", "added": <int>, "skipped": [...],
+            "message": <str>}`` where ``skipped`` lists each duplicate
+            medicine name with the reason.
+    """
     db = get_db()
     count = db["products"].count_documents({"merchant_id": user["merchant_id"]})
 
@@ -619,7 +658,23 @@ def bulk_add_products(products: list[ProductCreate], user: dict = Depends(get_cu
 
 @router.post("/bulk-import-preview", summary="Dry-run preview for bulk import")
 def bulk_import_preview_route(products: list[ProductCreate], user: dict = Depends(get_current_user)):
-    """Check which products are new vs duplicates before committing a bulk import."""
+    """Preview a bulk import without writing any data (dry run).
+
+    Classifies each supplied product as new or a duplicate of an existing
+    product (matched case-insensitively on medicine name), without
+    inserting anything into the database.
+
+    Args:
+        products: List of candidate products to check.
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` scopes the duplicate check to the caller's
+            pharmacy.
+
+    Returns:
+        dict: ``{"status": "ok", "new": [...], "duplicates": [...],
+            "total": <int>}`` where ``duplicates`` includes each existing
+            product's ID.
+    """
     db = get_db()
     new_list, duplicates = [], []
     for p in products:
@@ -652,7 +707,33 @@ def list_products(
     category: str = Query(default=""),
     user: dict = Depends(get_current_user),
 ):
-    """Paginated product catalogue with search + category filter."""
+    """Return a paginated product catalogue with search and category filters.
+
+    Excludes soft-deleted products. Each result is expanded via
+    ``_build_product_view`` to include normalized packaging and stock
+    breakdown information.
+
+    Args:
+        page: 1-indexed page number.
+        page_size: Number of items per page (1-1000).
+        sort_by: Field name to sort by. Defaults to ``Medicine Name``.
+        sort_order: Sort direction, ``"asc"`` or ``"desc"``.
+        search: Optional case-insensitive substring match against medicine
+            name, generic name, brand name, barcode, or salt composition.
+        category: Optional case-insensitive substring match against the
+            product category.
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` scopes the results to the caller's pharmacy.
+
+    Returns:
+        dict: ``{"status": "ok", "page": ..., "page_size": ..., "total": ...,
+            "total_pages": ..., "data": [...]}`` with the matching, active
+            products.
+
+    Raises:
+        HTTPException: 422 if ``sort_order`` fails the query regex
+            validation.
+    """
     db = get_db()
     query: dict = _active_product_query({"merchant_id": user["merchant_id"]})
     if search:
@@ -693,7 +774,24 @@ def list_products(
 
 @router.get("/low-stock", summary="Low-stock items")
 def low_stock(user: dict = Depends(get_current_user)):
-    """Return products where current stock is < average weekly sales"""
+    """Return products whose current stock is below their average weekly sales.
+
+    Computes average weekly sales per medicine from historical
+    ``consumer_orders``, then flags any item (from the ``inventory``
+    collection, falling back to ``products`` if empty) whose current stock
+    is below that average. Items with zero stock are marked ``critical``;
+    others are marked ``high`` urgency.
+
+    Args:
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` scopes the analysis to the caller's
+            pharmacy.
+
+    Returns:
+        dict: ``{"status": "ok", "data": [...]}`` with the flagged
+            low-stock items, each annotated with ``urgency``,
+            ``avg_weekly_sales``, ``medicine_name``, and ``current_stock``.
+    """
     db = get_db()
 
     # Calculate average weekly sales from consumer_orders
@@ -774,7 +872,27 @@ def low_stock(user: dict = Depends(get_current_user)):
 
 @router.get("/expiry-risk", summary="Expiry risk items")
 def expiry_risk(days: int = Query(default=90, ge=1, le=365), user: dict = Depends(get_current_user)):
-    """Return products that have more stock than can be sold before expiry based on avg weekly sales."""
+    """Return products at risk of expiring before they can be sold.
+
+    Computes average weekly sales per medicine from historical
+    ``consumer_orders``, then flags any in-stock item (from the
+    ``inventory`` collection, falling back to ``products`` if empty) whose
+    current stock exceeds the sales projected to occur before its expiry
+    date within the given window. Already-expired stock is marked
+    ``critical``; stock projected to outlast demand is marked ``high``.
+
+    Args:
+        days: Currently unused directly in the filtering logic but bounds
+            the accepted range (1-365) for the expiry risk window.
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` scopes the analysis to the caller's
+            pharmacy.
+
+    Returns:
+        dict: ``{"status": "ok", "data": [...]}`` with the flagged
+            expiry-risk items, each annotated with ``urgency`` and, where
+            applicable, ``projected_sales`` and ``days_until_expiry``.
+    """
     db = get_db()
     orders = list(db["consumer_orders"].find({"merchant_id": user["merchant_id"]}))
 
@@ -884,19 +1002,55 @@ def expiry_risk(days: int = Query(default=90, ge=1, le=365), user: dict = Depend
 
 @router.get("/reorder-recommendations", summary="Reorder recommendations")
 def reorder_recommendations(user: dict = Depends(get_current_user)):
-    """Recommended restocking quantities for all low-stock items."""
+    """Return recommended restocking quantities for all low-stock items.
+
+    Args:
+        user: The authenticated user, injected via ``get_current_user``.
+            Present for authentication only; not currently used to scope
+            the underlying recommendation query.
+
+    Returns:
+        dict: ``{"status": "ok", "data": <recommendations>}`` where
+            ``data`` is produced by
+            ``InventoryIntelligenceService.get_reorder_recommendations``.
+    """
     return {"status": "ok", "data": _inv.get_reorder_recommendations()}
 
 
 @router.get("/movement-patterns", summary="Sales velocity classification")
 def movement_patterns(user: dict = Depends(get_current_user)):
-    """Classify products as fast / medium / slow / no movement."""
+    """Classify products by sales velocity (fast / medium / slow / no movement).
+
+    Args:
+        user: The authenticated user, injected via ``get_current_user``.
+            Present for authentication only; not currently used to scope
+            the underlying analysis query.
+
+    Returns:
+        dict: ``{"status": "ok", "data": <patterns>}`` where ``data`` is
+            produced by
+            ``InventoryIntelligenceService.analyze_movement_patterns``.
+    """
     return {"status": "ok", "data": _inv.analyze_movement_patterns()}
 
 
 @router.get("/{product_id}", summary="Get single product")
 def get_product(product_id: str, user: dict = Depends(get_current_user)):
-    """Fetch one product by Product ID or Medicine Name."""
+    """Fetch one product by Product ID, Medicine Name, or barcode.
+
+    Args:
+        product_id: A ``Product ID``, ``Medicine Name``, ``product_id``, or
+            barcode code identifying the product.
+        user: The authenticated user, injected via ``get_current_user``.
+
+    Returns:
+        dict: ``{"status": "ok", "data": <product>}`` with the expanded
+            product view (packaging + stock breakdown) from
+            ``_build_product_view``.
+
+    Raises:
+        HTTPException: 404 if no matching, non-deleted product is found.
+    """
     db = get_db()
     prod = _get_product_by_identifier(db, product_id)
     if not prod:
@@ -916,6 +1070,28 @@ def update_product(
     payload: ProductUpdate,
     user: dict = Depends(get_current_user),
 ):
+    """Partially update a product's fields.
+
+    Only fields present in ``payload`` are updated (partial update
+    semantics). If ``packaging`` is supplied, it is normalized and the
+    product's stock breakdown is recomputed against the new packaging
+    levels; otherwise the existing packaging is preserved and the
+    breakdown is recomputed against it using the current stock.
+
+    Args:
+        product_id: A ``Product ID``, ``Medicine Name``, ``product_id``, or
+            barcode code identifying the product to update.
+        payload: The fields to update; unset fields are left unchanged.
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` scopes the update to the caller's pharmacy.
+
+    Returns:
+        dict: ``{"status": "ok", "message": <str>, "data": <product>}``
+            with the refreshed, expanded product view.
+
+    Raises:
+        HTTPException: 404 if no matching, non-deleted product is found.
+    """
     db = get_db()
     product = _get_product_by_identifier(db, product_id)
     if not product or product.get("is_deleted"):
@@ -988,6 +1164,24 @@ def update_product(
 
 @router.delete("/{product_id}", summary="Delete product")
 def delete_product(product_id: str, user: dict = Depends(get_current_user)):
+    """Soft-delete a product.
+
+    Sets ``is_deleted=True`` and records ``deleted_at`` rather than
+    removing the document, so historical orders/ledger entries referencing
+    the product remain valid.
+
+    Args:
+        product_id: A ``Product ID``, ``Medicine Name``, ``product_id``, or
+            barcode code identifying the product to delete.
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` scopes the update to the caller's pharmacy.
+
+    Returns:
+        dict: ``{"status": "ok", "message": <str>}`` confirming deletion.
+
+    Raises:
+        HTTPException: 404 if no matching, non-deleted product is found.
+    """
     db = get_db()
     product = _get_product_by_identifier(db, product_id)
     if not product or product.get("is_deleted"):
@@ -1007,6 +1201,25 @@ def search_products(
     limit: int = Query(default=20, ge=1, le=100),
     user: dict = Depends(get_current_user),
 ):
+    """Search the active product catalogue by free text or barcode.
+
+    If ``barcode`` is supplied it takes precedence over ``q`` and matches
+    against ``barcodes.code``/``barcode`` fields; otherwise ``q`` is
+    matched case-insensitively against medicine name, generic name, brand
+    name, salt composition, and barcode codes.
+
+    Args:
+        q: Optional free-text search term.
+        barcode: Optional exact barcode to look up; overrides ``q`` when
+            provided.
+        limit: Maximum number of results to return (1-100).
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` scopes the search to the caller's pharmacy.
+
+    Returns:
+        dict: ``{"status": "ok", "data": [...]}`` with the matching, active
+            products (expanded via ``_build_product_view``).
+    """
     db = get_db()
     query: dict = _active_product_query({"merchant_id": user["merchant_id"]})
     if barcode:
@@ -1025,7 +1238,21 @@ def search_products(
 
 @router.get("/{product_id}/forecast", summary="Demand forecast")
 def demand_forecast(product_id: str, days: int = Query(default=30, ge=1, le=365), user: dict = Depends(get_current_user)):
-    """SMA-based demand forecast for a product."""
+    """Return an SMA-based demand forecast for a product.
+
+    Args:
+        product_id: Identifier of the product to forecast.
+        days: Number of days to forecast ahead (1-365).
+        user: The authenticated user, injected via ``get_current_user``.
+
+    Returns:
+        dict: ``{"status": "ok", "data": <forecast>}`` where ``data`` is
+            produced by
+            ``InventoryIntelligenceService.forecast_demand``.
+
+    Raises:
+        HTTPException: 500 if the forecast cannot be computed.
+    """
     try:
         data = _inv.forecast_demand(product_id, days=days)
         return {"status": "ok", "data": data}
@@ -1035,7 +1262,21 @@ def demand_forecast(product_id: str, days: int = Query(default=30, ge=1, le=365)
 
 @router.get("/{product_id}/trend", summary="Demand trend")
 def demand_trend(product_id: str, user: dict = Depends(get_current_user)):
-    """Monthly demand trend (increasing / stable / decreasing)."""
+    """Return the monthly demand trend classification for a product.
+
+    Args:
+        product_id: Identifier of the product to analyze.
+        user: The authenticated user, injected via ``get_current_user``.
+
+    Returns:
+        dict: ``{"status": "ok", "data": <trend>}`` where ``data``
+            indicates whether demand is increasing, stable, or decreasing,
+            as produced by
+            ``InventoryIntelligenceService.analyze_demand_trend``.
+
+    Raises:
+        HTTPException: 500 if the trend cannot be computed.
+    """
     try:
         return {"status": "ok", "data": _inv.analyze_demand_trend(product_id)}
     except Exception as exc:
@@ -1044,6 +1285,25 @@ def demand_trend(product_id: str, user: dict = Depends(get_current_user)):
 
 @router.get("/{product_id}/batches", summary="List stock batches")
 def list_batches(product_id: str, user: dict = Depends(get_current_user)):
+    """List stock batches for a product, ordered by expiry (FEFO order).
+
+    Args:
+        product_id: A ``Product ID`` or other identifier accepted by
+            ``_get_product_by_identifier`` for the product to list batches
+            for.
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` scopes the results to the caller's
+            pharmacy.
+
+    Returns:
+        dict: ``{"status": "ok", "data": [...]}`` with the product's stock
+            batches (excluding ``_id``), sorted by expiry date then update
+            time ascending.
+
+    Raises:
+        HTTPException: 404 if a matching product exists but has been
+            soft-deleted.
+    """
     db = get_db()
     product = _get_product_by_identifier(db, product_id)
     if product and product.get("is_deleted"):
@@ -1070,6 +1330,30 @@ def product_ledger(
     to_date: Optional[str] = Query(default=None),
     user: dict = Depends(get_current_user),
 ):
+    """Return the inventory ledger (stock movement history) for a product.
+
+    Args:
+        product_id: Identifier of the product whose ledger entries to
+            fetch.
+        from_date: Optional ISO-format date/datetime lower bound
+            (inclusive) on ``created_at``.
+        to_date: Optional ISO-format date/datetime upper bound (inclusive)
+            on ``created_at``.
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` (as ``tenant_id``) scopes the results to
+            the caller's pharmacy.
+
+    Returns:
+        dict: ``{"status": "ok", "data": [...]}`` with matching ledger
+            entries (excluding ``_id``), sorted by ``created_at``
+            descending.
+
+    Raises:
+        HTTPException: 422 implicitly if ``from_date``/``to_date`` are not
+            valid ISO-format strings (raised as a ``ValueError`` from
+            ``datetime.fromisoformat``, surfaced by FastAPI's default error
+            handling).
+    """
     db = get_db()
     query: dict = {"tenant_id": user["merchant_id"], "product_id": {"$in": [product_id]}}
     if from_date:
@@ -1088,6 +1372,38 @@ def stock_actions(
     user: dict = Depends(get_current_user),
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ):
+    """Apply one or more stock movements (purchase, sale, return, damage, expiry, adjustment).
+
+    Idempotent: if ``Idempotency-Key`` (or an auto-derived key) has already
+    been used for a ledger entry, the call is a no-op replay. For outbound
+    actions (``sale_out``, ``damage_out``, ``expiry_out``), stock is
+    deducted either from a specific named batch or via FEFO
+    (first-expiry-first-out) allocation across batches; for inbound
+    actions (``purchase_in``, ``return_in``) and ``adjustment``, a batch is
+    created or topped up. Each line's movement is recorded in the
+    inventory ledger.
+
+    Args:
+        payload: The stock action to apply, including the action type, the
+            line items (product, quantity in box/strip/unit terms, batch,
+            reason), and reference metadata.
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` scopes the operation to the caller's
+            pharmacy.
+        idempotency_key: Optional client-supplied idempotency key (header
+            ``Idempotency-Key``); a merchant/reference-derived key is used
+            if omitted.
+
+    Returns:
+        dict: ``{"status": "ok", "idempotency_key": <str>, "results": [...]}``
+            with per-line results, or an idempotent-replay message if the
+            key was already processed.
+
+    Raises:
+        HTTPException: 404 if a referenced product or batch is not found;
+            400 if requested stock exceeds available stock
+            (``INSUFFICIENT_STOCK``).
+    """
     db = get_db()
     idempotency_key = idempotency_key or f"{user['merchant_id']}:{payload.reference_type or payload.action}:{payload.reference_id or uuid.uuid4().hex}"
     if _ledger_exists(db, idempotency_key):
@@ -1167,6 +1483,27 @@ def stock_actions(
 
 @router.post("/counter/scan", summary="Resolve barcode for counter mode")
 def counter_scan(payload: CounterScanRequest, user: dict = Depends(get_current_user)):
+    """Resolve a scanned barcode to a product and add it to a counter session.
+
+    Looks up the product referenced by the barcode and appends (or merges
+    quantity into an existing) line item within the given counter session,
+    creating the session if it doesn't already exist.
+
+    Args:
+        payload: The scan payload — session ID, scanned barcode, and
+            optional quantity (defaults to 1 unit).
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` scopes the session to the caller's
+            pharmacy.
+
+    Returns:
+        dict: ``{"status": "ok", "data": {"session_id": ..., "barcode": ...,
+            "product": <product>, "matched_barcode_level": ...}}`` with the
+            expanded product view for the scanned item.
+
+    Raises:
+        HTTPException: 404 if the barcode is not mapped to any product.
+    """
     db = get_db()
     product = _resolve_product_ref(db, payload.barcode)
     if not product:
@@ -1214,6 +1551,31 @@ def counter_confirm_sale(
     user: dict = Depends(get_current_user),
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ):
+    """Commit a counter session's scanned lines as a sale.
+
+    Converts the session's accumulated scan lines into a ``sale_out``
+    stock action (delegating to :func:`stock_actions`), deducting stock
+    for each scanned product.
+
+    Args:
+        payload: Confirmation details — session ID, payment mode, whether
+            this is a missed-sale backfill entry, and optional reason/
+            reference overrides.
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` scopes the session to the caller's
+            pharmacy.
+        idempotency_key: Optional client-supplied idempotency key (header
+            ``Idempotency-Key``); a session-derived key is used if omitted.
+
+    Returns:
+        dict: The result of :func:`stock_actions` for the resulting
+            ``sale_out`` movement.
+
+    Raises:
+        HTTPException: 400 if the session has no scanned lines; 404/400 as
+            raised by the underlying :func:`stock_actions` call (missing
+            product/batch, insufficient stock).
+    """
     db = get_db()
     session_doc = db["counter_sessions"].find_one({"merchant_id": user["merchant_id"], "session_id": payload.session_id}) or {"lines": []}
     lines = session_doc.get("lines", [])
@@ -1249,6 +1611,32 @@ def reconcile_adjust(
     user: dict = Depends(get_current_user),
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ):
+    """Reconcile physical stock counts against system stock, recording adjustments.
+
+    For each line, computes the delta between the physically counted
+    quantity and the system-recorded (or supplied) quantity; if nonzero,
+    updates the product's stock and appends an ``adjustment`` entry to the
+    inventory ledger.
+
+    Args:
+        payload: The reconciliation batch — a date and one or more lines,
+            each with a product, physical count, optional system count,
+            and a reason code.
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` scopes the operation to the caller's
+            pharmacy.
+        idempotency_key: Optional client-supplied idempotency key (header
+            ``Idempotency-Key``); a per-line, date-derived key is used if
+            omitted.
+
+    Returns:
+        dict: ``{"status": "ok", "data": [...]}`` with each line's
+            ``product_id``, ``delta_base_units``, ``physical``, and
+            ``system`` quantities.
+
+    Raises:
+        HTTPException: 404 if a referenced product is not found.
+    """
     db = get_db()
     results = []
     for line in payload.lines:
