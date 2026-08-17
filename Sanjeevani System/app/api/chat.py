@@ -78,6 +78,17 @@ def save_session_state(session_id: str, state: ChatState, temp_data: Dict[str, A
 
 @router.get("/sessions")
 def get_sessions(phone: str = "", merchant_id: str = "samaypowade9@gmail.com"):
+    """Return a list of chat sessions for a merchant, optionally filtered by phone.
+
+    Args:
+        phone: Optional phone number to filter sessions by. If empty, all
+            sessions for the merchant are returned.
+        merchant_id: Merchant/pharmacy identifier that owns the sessions.
+
+    Returns:
+        list[dict]: Session summaries, each with ``session_id``, ``title``,
+            and ``updated_at``, sorted by ``updated_at`` descending.
+    """
     db = get_db()
     query = {"merchant_id": merchant_id}
     if phone:
@@ -95,6 +106,16 @@ def get_sessions(phone: str = "", merchant_id: str = "samaypowade9@gmail.com"):
 
 @router.delete("/sessions/{session_id}")
 def delete_session(session_id: str, merchant_id: str = "samaypowade9@gmail.com"):
+    """Delete a chat session and its associated message history.
+
+    Args:
+        session_id: Identifier of the session to delete.
+        merchant_id: Merchant/pharmacy identifier that owns the session.
+
+    Returns:
+        dict: ``{"status": "ok"}`` regardless of whether a matching session
+            was found (no error is raised if it was already deleted).
+    """
     db = get_db()
     session = db["chat_sessions"].find_one({"session_id": session_id, "merchant_id": merchant_id})
     if session:
@@ -104,6 +125,16 @@ def delete_session(session_id: str, merchant_id: str = "samaypowade9@gmail.com")
 
 @router.get("/history/{session_id}")
 def get_history(session_id: str, merchant_id: str = "samaypowade9@gmail.com"):
+    """Return the full chat message history for a session, oldest first.
+
+    Args:
+        session_id: Identifier of the session to fetch history for.
+        merchant_id: Merchant/pharmacy identifier that owns the session.
+
+    Returns:
+        list[dict]: Chat history documents (with ``_id`` stripped), sorted
+            by ``timestamp`` ascending. Empty list if no history exists.
+    """
     db = get_db()
     history = list(db["chat_history"].find({"session_id": session_id, "merchant_id": merchant_id}).sort("timestamp", 1))
     for h in history:
@@ -112,6 +143,39 @@ def get_history(session_id: str, merchant_id: str = "samaypowade9@gmail.com"):
 
 @router.post("", response_model=ChatResponse)
 def process_chat(request: ChatRequest):
+    """Process an incoming chatbot message and return the assistant's reply.
+
+    Manages the full conversational turn: creates or resumes a chat
+    session, persists the user's message, runs lightweight medicine/safety/
+    inventory/context lookups to build agent insights, sends the
+    conversation (with a structured system prompt) to the Groq LLM to
+    obtain a structured JSON reply, updates the session's onboarding/order
+    state, finalizes and persists the order when the AI signals
+    confirmation, and persists the bot's reply.
+
+    If the Groq client is not configured (``GROQ_API_KEY`` unset), the
+    endpoint responds with a fixed "offline mode" message instead of
+    calling the LLM.
+
+    Args:
+        request: The incoming chat message, including the free-text
+            ``message``, optional ``phone``, optional ``session_id`` (a new
+            one is generated if omitted), optional ``merchant_id``
+            (defaults to a fixed demo merchant), and optional ``button_id``
+            for button-triggered interactions.
+
+    Returns:
+        ChatResponse: The bot's reply text, the (possibly newly created)
+            ``session_id``, the resulting conversation ``state``, any
+            quick-reply ``buttons``, and any ``extracted_data``. Note: when
+            running in offline mode, only ``text`` and ``session_id`` are
+            populated.
+
+    Raises:
+        HTTPException: Not raised directly; LLM or processing errors are
+            caught internally and surfaced as a generic fallback bot
+            message instead of an HTTP error.
+    """
     db = get_db()
     session_id = request.session_id
     if not session_id:
@@ -363,6 +427,28 @@ async def upload_prescription(
     session_id: str = Form(None),
     merchant_id: str = Form("samaypowade9@gmail.com")
 ):
+    """Upload and process a prescription image/document via the Safety Agent.
+
+    Saves the uploaded file locally, runs OCR/extraction and safety
+    validation through ``SafetyValidationService.process_prescription_file``,
+    and records the outcome (success or failure) as a bot message in the
+    chat session's history.
+
+    Args:
+        file: The uploaded prescription file (image or document).
+        phone: Optional phone number associated with a new session, used
+            only if ``session_id`` is not supplied.
+        session_id: Existing session to attach the upload to. A new
+            session is created if omitted.
+        merchant_id: Merchant/pharmacy identifier that owns the session.
+
+    Returns:
+        dict: ``{"message": <str>, "session_id": <str>, "data": <result>}``
+            where ``data`` is the raw result from
+            ``SafetyValidationService.process_prescription_file``, including
+            matched medicines and doctor info on success, or an error
+            message on failure.
+    """
     db = get_db()
     if not session_id:
         session_id = generate_session_id()

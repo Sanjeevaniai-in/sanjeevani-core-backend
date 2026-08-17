@@ -115,9 +115,31 @@ def list_orders(
     sort_order: str = Query(default="desc", regex="^(asc|desc)$"),
     user: dict = Depends(get_current_user),
 ):
-    """
-    Paginated order list with filters for:
-    patient_id, status, medicine, channel.
+    """Return a paginated list of orders with optional filters.
+
+    Args:
+        page: 1-indexed page number.
+        page_size: Number of items per page (1-100).
+        patient_id: Optional case-insensitive substring filter matched
+            against ``Patient ID`` or ``Patient Name``.
+        status: Optional case-insensitive substring filter on
+            ``Order Status``.
+        medicine: Optional case-insensitive substring filter on
+            ``Medicine Name``.
+        channel: Optional case-insensitive substring filter on
+            ``Order Channel``.
+        sort_by: Field name to sort by. Defaults to ``Order Date``.
+        sort_order: Sort direction, ``"asc"`` or ``"desc"``.
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` scopes the results to the caller's pharmacy.
+
+    Returns:
+        dict: A pagination envelope built by ``build_pagination_response``
+            containing the matching orders.
+
+    Raises:
+        HTTPException: 422 if ``sort_order`` fails the query regex
+            validation.
     """
     db = get_db()
     query: dict = {"merchant_id": user["merchant_id"]}
@@ -154,7 +176,19 @@ def list_orders(
 
 @router.get("/stats", summary="Order statistics summary")
 def order_stats(user: dict = Depends(get_current_user)):
-    """Aggregate counts by status, channel and payment method."""
+    """Return aggregate order counts by status, channel, and payment method.
+
+    Args:
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` scopes the aggregation to the caller's
+            pharmacy.
+
+    Returns:
+        dict: ``{"status": "ok", "data": {"by_status": [...],
+            "by_channel": [...], "by_payment": [...], "total": <int>}}``
+            where each breakdown is a list of ``{"label": ..., "count": ...}``
+            entries sorted by count descending.
+    """
     db = get_db()
 
     def _agg(field: str):
@@ -230,9 +264,23 @@ def _ensure_order_indexes(db) -> None:
 
 @router.post("/validate", summary="Validate an order before placing")
 def validate_order(body: ValidateOrderRequest, user: dict = Depends(get_current_user)):
-    """
-    Run all safety checks on a proposed order.
-    Returns ``is_valid``, individual check results, and a summary.
+    """Run all pre-order safety checks for a proposed order.
+
+    Args:
+        body: The proposed order — patient, medicine name, quantity (must
+            be > 0), and whether a prescription has been provided.
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` scopes the validation to the caller's
+            pharmacy.
+
+    Returns:
+        dict: ``{"status": "ok", "data": <result>}`` where ``data``
+            includes ``is_valid``, individual check results, and a summary,
+            as returned by ``SafetyValidationService.validate_order``.
+
+    Raises:
+        HTTPException: 422 if ``quantity`` is not greater than 0; 500 if
+            validation fails unexpectedly.
     """
     try:
         result = _safety.validate_order(
@@ -249,7 +297,20 @@ def validate_order(body: ValidateOrderRequest, user: dict = Depends(get_current_
 
 @router.get("/{order_id}", summary="Get a single order by Order ID")
 def get_order(order_id: str, user: dict = Depends(get_current_user)):
-    """Fetch one order record by its ``Order ID`` field."""
+    """Fetch one order record by its ``Order ID`` field.
+
+    Args:
+        order_id: The order's ``Order ID`` value.
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` scopes the lookup to the caller's pharmacy.
+
+    Returns:
+        dict: ``{"status": "ok", "data": <order>}`` with the order document
+            (excluding ``_id``).
+
+    Raises:
+        HTTPException: 404 if no matching order is found for the merchant.
+    """
     db = get_db()
     order = db["consumer_orders"].find_one(
         {"Order ID": order_id, "merchant_id": user["merchant_id"]}, 
@@ -266,9 +327,27 @@ class UpdateOrderStatusRequest(BaseModel):
 
 @router.patch("/{order_id}/status", summary="Update order status (Approve/Reject)")
 def update_order_status(order_id: str, body: UpdateOrderStatusRequest, user: dict = Depends(get_current_user)):
-    """
-    Update the status of an order.
-    If status is 'Completed' or 'Validated', it checks inventory and deducts stock.
+    """Update the status of an order, deducting stock when appropriate.
+
+    If the new status is ``"Completed"`` or ``"Validated"``, the matching
+    product's stock is checked; if insufficient, the order is instead
+    force-rejected with a note, otherwise stock is deducted by the order
+    quantity.
+
+    Args:
+        order_id: The order's ``Order ID`` value.
+        body: The new status to apply.
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` scopes the lookup to the caller's pharmacy.
+
+    Returns:
+        dict: On success, ``{"status": "ok", "message": <str>}``. If stock
+            was insufficient, ``{"status": "error", "message": <str>}`` is
+            returned (HTTP 200) and the order is auto-rejected instead of
+            being updated to the requested status.
+
+    Raises:
+        HTTPException: 404 if no matching order is found for the merchant.
     """
     db = get_db()
 
@@ -329,8 +408,29 @@ def confirm_and_dispatch_order(
     background_tasks: BackgroundTasks,
     user: dict = Depends(get_current_user)
 ):
-    """
-    Called when pharmacist clicks 'Place Order' in the dashboard UI.
+    """Confirm and dispatch an order, notifying the patient and initializing AI agents.
+
+    Called when a pharmacist clicks 'Place Order' in the dashboard UI.
+    Marks the order as ``Completed``, upserts the associated patient
+    record, and schedules two background tasks: sending an order
+    confirmation notification (WhatsApp/Telegram) and initializing the
+    SSSA AI agent pipeline for the order.
+
+    Args:
+        order_id: The order's ``Order ID`` value.
+        background_tasks: FastAPI background task queue used to send the
+            notification and initialize AI agents asynchronously.
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` scopes the lookup to the caller's pharmacy.
+
+    Returns:
+        dict: ``{"status": "ok", "message": <str>, "order_id": <str>}``
+            confirming dispatch and agent activation.
+
+    Raises:
+        HTTPException: 404 if no matching order is found; 400 if the order
+            is already in a terminal state (``Completed``, ``Delivered``,
+            or ``Rejected``) and cannot be re-confirmed.
     """
     db = get_db()
 
@@ -378,9 +478,32 @@ async def place_manual_order(
     body: QuickOrderRequest, 
     user: dict = Depends(get_current_user)
 ):
-    """
-    Creates a new order record directly in the database.
-    Useful for testing the dashboard's reactive signals.
+    """Create a new order record directly in the database.
+
+    Useful for testing the dashboard's reactive signals and for
+    placing orders from external channels (delivery apps, etc.). Looks up
+    the matching product for pricing and stock deduction, but tolerates
+    unmatched products by creating the order anyway (flagged
+    ``is_unmatched``). Deduplicates by ``source_channel`` +
+    ``source_message_id`` when provided.
+
+    Args:
+        body: The order details — patient name, medicine name, quantity,
+            channel, and optional merchant/pharmacy routing and source
+            metadata for idempotent external-channel ingestion.
+        user: The authenticated user, injected via ``get_current_user``,
+            used to resolve the target merchant and authorize cross-tenant
+            order placement.
+
+    Returns:
+        dict: ``{"status": "ok", "message": <str>, "order_id": <str>}`` on
+            creation, or a duplicate-ignored response reusing the existing
+            ``order_id`` if ``source_message_id`` was already processed.
+
+    Raises:
+        HTTPException: 403 if the caller attempts to place an order for a
+            different merchant without a valid external-order role/channel;
+            400 if no merchant ID can be resolved.
     """
     import time
     db = get_db()
@@ -458,6 +581,21 @@ def recent_order_audit(
     limit: int = Query(default=50, ge=1, le=200),
     user: dict = Depends(get_current_user),
 ):
+    """Return a lightweight audit trail of the merchant's most recent orders.
+
+    Intended for verifying order-source routing (e.g. confirming
+    ``source_channel``/``source_provider`` metadata was recorded
+    correctly), so only a reduced set of fields is projected.
+
+    Args:
+        limit: Maximum number of orders to return (1-200).
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` scopes the results to the caller's pharmacy.
+
+    Returns:
+        dict: ``{"status": "ok", "data": [...]}`` with the most recent
+            orders (excluding ``_id``), sorted by ``Order Date`` descending.
+    """
     db = get_db()
     rows = list(
         db["consumer_orders"]
@@ -486,9 +624,23 @@ def recent_order_audit(
 
 @router.post("/test-agents", summary="Trigger 6-Agent Activation Sequence (Demo)")
 async def test_agents(user: dict = Depends(get_current_user)):
-    """
-    Triggers the 6-agent activation sequence for a sample patient.
-    Provides real-time feedback for the dashboard 'TEST AGENTS' button.
+    """Trigger the 6-agent AI activation sequence for a sample patient.
+
+    Triggers the 6-agent activation sequence (Health Bot, Refill Guardian,
+    Safety Evaluator, Intake Coach, Adherence Analyzer, Assistant Relay)
+    using a hardcoded sample patient and order ID. Provides real-time
+    feedback for the dashboard's 'TEST AGENTS' button; does not affect
+    real order data.
+
+    Args:
+        user: The authenticated user, injected via ``get_current_user``.
+            Its ``merchant_id`` scopes the agent run to the caller's
+            pharmacy.
+
+    Returns:
+        dict: ``{"status": "ok", "message": <str>, "agents": [...],
+            "context": {"patient": ..., "order_id": ...}}`` listing each
+            agent's active status.
     """
     sample_patient = "Rahul Sharma"
     sample_order = "ORD-TEST-999"
