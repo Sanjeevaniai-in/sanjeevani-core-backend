@@ -34,8 +34,8 @@ Click the **Fork** button at the top right of this repository to create a copy o
 ### 2. Clone Your Fork
 Clone the repository to your local computer:
 ```bash
-git clone https://github.com/<YOUR-USERNAME>/<REPOSITORY-NAME>.git
-cd <REPOSITORY-NAME>
+git clone https://github.com/<YOUR-USERNAME>/sanjeevani-core-backend.git
+cd sanjeevani-core-backend
 ```
 
 ### 3. Create a Branch
